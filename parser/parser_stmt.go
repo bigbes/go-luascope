@@ -588,55 +588,56 @@ func (p *parser) label(stmts *[]ast.Stmt) {
 	p.golaResolve(fs.bl, idx, &p.gola[idx])
 }
 
-// lhsVar is a target of an assignment (LHSVarList).
-type lhsVar struct {
-	v    expDesc
-	prev *lhsVar
-}
-
 // callOrAssign parses a call statement or an assignment
 // (parse_call_assign).
 func (p *parser) callOrAssign() ast.Stmt {
-	var lh lhsVar
+	var v expDesc
 
 	pos := p.tok.pos
-	e := p.primary(&lh.v)
+	e := p.primary(&v)
 
-	if lh.v.k == vCall {
-		p.fs.bc[lh.v.info].ins.setB(1) // No results.
+	if v.k == vCall {
+		p.fs.bc[v.info].ins.setB(1) // No results.
 		return &ast.CallStmt{At: pos, Call: e}
 	}
 
 	s := &ast.Assign{At: pos, Targets: []ast.Expr{e}}
-	p.assignment(s, &lh, 1)
+	base := len(p.lhs)
+	p.lhs = append(p.lhs, v)
+	p.assignment(s, base, 1)
+	p.lhs = p.lhs[:base]
 
 	return s
 }
 
-// assignment parses the rest of an assignment: the targets after lh and
-// the values (parse_assignment).
-func (p *parser) assignment(s *ast.Assign, lh *lhsVar, nvars int) {
+// assignment parses the rest of an assignment: the targets after the
+// ones in p.lhs[base:] and the values (parse_assignment). The targets
+// are a stack, like the list on the C stack in LuaJIT.
+func (p *parser) assignment(s *ast.Assign, base, nvars int) {
 	var e expDesc
 
 	fs := p.fs
+	last := base + nvars - 1
 
-	if lh.v.k < vLocal || lh.v.k > vIndexed {
+	if k := p.lhs[last].k; k < vLocal || k > vIndexed {
 		p.failNear(errSyntax)
 	}
 
 	if p.opt(',') { // Collect the targets and recurse.
-		vl := &lhsVar{prev: lh}
-		s.Targets = append(s.Targets, p.primary(&vl.v))
+		var v expDesc
 
-		if vl.v.k == vLocal {
-			p.assignHazard(lh, &vl.v)
+		s.Targets = append(s.Targets, p.primary(&v))
+		p.lhs = append(p.lhs, v)
+
+		if v.k == vLocal {
+			p.assignHazard(base, last, &v)
 		}
 
 		if p.level+nvars >= maxLevels {
 			p.limit(fs, maxLevels, "variable names")
 		}
 
-		p.assignment(s, vl, nvars+1)
+		p.assignment(s, base, nvars+1)
 	} else {
 		p.check('=')
 		s.Values = p.exprList(&e)
@@ -652,7 +653,7 @@ func (p *parser) assignment(s *ast.Assign, lh *lhsVar, nvars int) {
 				}
 			}
 
-			fs.store(&lh.v, &e)
+			fs.store(&p.lhs[last], &e)
 
 			return
 		}
@@ -662,30 +663,32 @@ func (p *parser) assignment(s *ast.Assign, lh *lhsVar, nvars int) {
 
 	// Assign the value to the target and return to the previous one.
 	e.init(vNonReloc, fs.freereg-1)
-	fs.store(&lh.v, &e)
+	fs.store(&p.lhs[last], &e)
 }
 
-// assignHazard renames the tables and keys of indexed targets that an
-// assignment to a local overwrites before they are used (assign_hazard).
-func (p *parser) assignHazard(lh *lhsVar, v *expDesc) {
+// assignHazard renames the tables and keys of the indexed targets
+// p.lhs[base:last+1] that an assignment to the local v overwrites before
+// they are used (assign_hazard).
+func (p *parser) assignHazard(base, last int, v *expDesc) {
 	fs := p.fs
 	reg := v.info
 	tmp := fs.freereg
 	hazard := false
 
-	for ; lh != nil; lh = lh.prev {
-		if lh.v.k != vIndexed {
+	for i := last; i >= base; i-- {
+		lh := &p.lhs[i]
+		if lh.k != vIndexed {
 			continue
 		}
 
-		if lh.v.info == reg { // t[i], t = 1, 2
+		if lh.info == reg { // t[i], t = 1, 2
 			hazard = true
-			lh.v.info = tmp
+			lh.info = tmp
 		}
 
-		if lh.v.aux == reg { // t[i], i = 1, 2
+		if lh.aux == reg { // t[i], i = 1, 2
 			hazard = true
-			lh.v.aux = tmp
+			lh.aux = tmp
 		}
 	}
 

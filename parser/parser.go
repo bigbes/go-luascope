@@ -51,6 +51,9 @@ type parser struct {
 	fsCache []*funcState
 	depth   int
 	scratch *scratch
+	// lhs are the targets of the assignments being parsed, see
+	// assignment.
+	lhs []expDesc
 	// vtop is the number of entries in the variable stack (ls->vtop).
 	vtop  int
 	level int
@@ -92,15 +95,18 @@ func newParser(src []byte) *parser {
 		bcstack:  s.bcstack,
 		gola:     s.gola,
 		fsCache:  s.fsCache,
+		lhs:      s.lhs,
 	}
 }
 
 // scratch is the memory a parser takes over from the previous chunks: the
-// bytecode stack, the gotos and labels, and the states of functions.
+// bytecode stack, the gotos and labels, the states of functions and the
+// stack of assignment targets.
 type scratch struct {
 	bcstack []insLine
 	gola    []golaEntry
 	fsCache []*funcState
+	lhs     []expDesc
 }
 
 var scratchPool = sync.Pool{New: func() any { return &scratch{} }}
@@ -122,7 +128,7 @@ func (p *parser) release() {
 	clear(p.gola[:cap(p.gola)])
 
 	s := p.scratch
-	s.gola, s.fsCache = p.gola[:0], p.fsCache
+	s.gola, s.fsCache, s.lhs = p.gola[:0], p.fsCache, p.lhs[:0]
 	s.bcstack = nil
 
 	if len(p.bcstack) <= maxPooledBytecode {
