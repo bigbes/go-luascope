@@ -29,6 +29,7 @@ package parser
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/bigbes/go-luascope/ast"
 )
@@ -49,6 +50,7 @@ type parser struct {
 	// newFuncState; depth is the number of functions being parsed.
 	fsCache []*funcState
 	depth   int
+	scratch *scratch
 	// vtop is the number of entries in the variable stack (ls->vtop).
 	vtop  int
 	level int
@@ -81,11 +83,59 @@ func ParseBytes(src []byte, chunk string) (*ast.Chunk, error) {
 }
 
 func newParser(src []byte) *parser {
-	return &parser{lx: newLexer(src), lastLine: 1}
+	s, _ := scratchPool.Get().(*scratch)
+
+	return &parser{
+		lx:       newLexer(src),
+		lastLine: 1,
+		scratch:  s,
+		bcstack:  s.bcstack,
+		gola:     s.gola,
+		fsCache:  s.fsCache,
+	}
+}
+
+// scratch is the memory a parser takes over from the previous chunks: the
+// bytecode stack, the gotos and labels, and the states of functions.
+type scratch struct {
+	bcstack []insLine
+	gola    []golaEntry
+	fsCache []*funcState
+}
+
+var scratchPool = sync.Pool{New: func() any { return &scratch{} }}
+
+// maxPooledBytecode is the size of the largest bytecode stack kept for the
+// next chunks, 1 MB: the stack of a huge chunk is left to the collector.
+const maxPooledBytecode = 1 << 17
+
+// release returns the memory of the parser to the pool, without the
+// references to the chunk.
+func (p *parser) release() {
+	for _, fs := range p.fsCache {
+		clear(fs.actives[:cap(fs.actives)])
+		clear(fs.pending[:cap(fs.pending)])
+		clear(fs.uvmap[:cap(fs.uvmap)])
+		fs.reset()
+	}
+
+	clear(p.gola[:cap(p.gola)])
+
+	s := p.scratch
+	s.gola, s.fsCache = p.gola[:0], p.fsCache
+	s.bcstack = nil
+
+	if len(p.bcstack) <= maxPooledBytecode {
+		s.bcstack = p.bcstack
+	}
+
+	scratchPool.Put(s)
 }
 
 // run parses the chunk and turns a syntax error into an error.
 func (p *parser) run(chunk string) (result *ast.Chunk, err error) {
+	defer p.release()
+
 	defer func() {
 		if r := recover(); r != nil {
 			se, ok := r.(*SyntaxError)
