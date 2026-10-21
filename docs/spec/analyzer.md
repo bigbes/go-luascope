@@ -626,12 +626,14 @@ func Collect(chunk *ast.Chunk) []Load
 | `require("m")` | `m` | пусто |
 | `require(expr)` | пусто | `dynamic` |
 | `dofile("p.lua")`, `loadfile("p.lua")` | `p.lua` | пусто |
-| `dofile(expr)`, `dofile()` | пусто | `dynamic` |
+| `dofile`, `loadfile`, `package.loadlib` без аргумента или с непостоянным | пусто | `dynamic` |
 | `package.loadlib("p.so", "f")` | `p.so` | пусто |
 | `load(...)`, `loadstring(...)` при вызове | пусто | пусто |
-| любой из восьми видов как значение | как у вызова | `value` |
+| любой из восьми видов как значение | пусто | `value` |
 
-У `load` и `loadstring` имени нет при любом вызове: код берётся из памяти, а не из файла. Причины
+У значения нет аргумента, поэтому имени взять неоткуда: у любой ссылки на загрузчик `Name` пустое,
+а `Reason` равен `value`. Примеры ссылки: `local r = require`, `pcall(dofile, x)`. У `load` и
+`loadstring` имени нет и при вызове: код берётся из памяти, а не из файла. Причины
 `unknown` не существует: если имени нет, то либо `dynamic`, либо `value`, либо пусто.
 
 Команда `luascope deps [--format text|json] [файлы...]` выводит только загрузки: глобалы в выводе
