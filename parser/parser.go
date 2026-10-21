@@ -45,6 +45,10 @@ type parser struct {
 	gola     []golaEntry
 	// bcstack holds the bytecode of the functions being parsed.
 	bcstack []insLine
+	// fsCache holds the states of the functions by depth, see
+	// newFuncState; depth is the number of functions being parsed.
+	fsCache []*funcState
+	depth   int
 	// vtop is the number of entries in the variable stack (ls->vtop).
 	vtop  int
 	level int

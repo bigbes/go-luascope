@@ -84,15 +84,14 @@ type golaEntry struct {
 
 // openFunc starts a function (fs_init and fscope_begin).
 func (p *parser) openFunc(line int) *funcState {
-	fs := &funcState{
-		p:           p,
-		prev:        p.fs,
-		lineDefined: line,
-		golaBase:    len(p.gola),
-		vbase:       p.vtop,
-		jpc:         noJump,
-		framesize:   1, // The minimum frame size.
-	}
+	fs := p.newFuncState()
+	fs.p = p
+	fs.prev = p.fs
+	fs.lineDefined = line
+	fs.golaBase = len(p.gola)
+	fs.vbase = p.vtop
+	fs.jpc = noJump
+	fs.framesize = 1 // The minimum frame size.
 
 	if p.fs != nil {
 		fs.base = p.fs.base + p.fs.pc
@@ -108,6 +107,42 @@ func (p *parser) openFunc(line int) *funcState {
 	p.openScope(0)
 
 	return fs
+}
+
+// newFuncState returns a cleared function state. Functions nest, so the
+// state of a function at a depth is reused by the next function at that
+// depth, with the memory of its tables of constants and of its slices.
+func (p *parser) newFuncState() *funcState {
+	if p.depth == len(p.fsCache) {
+		p.fsCache = append(p.fsCache, &funcState{})
+	}
+
+	fs := p.fsCache[p.depth]
+	fs.reset()
+	p.depth++
+
+	return fs
+}
+
+// reset clears a function state and keeps the memory of its tables of
+// constants and of its slices. The slices keep the locals of the previous
+// function past their length.
+func (fs *funcState) reset() {
+	if len(fs.kn) > 0 {
+		clear(fs.kn)
+	}
+
+	if len(fs.kstr) > 0 {
+		clear(fs.kstr)
+	}
+
+	*fs = funcState{
+		actives: fs.actives[:0],
+		pending: fs.pending[:0],
+		uvmap:   fs.uvmap[:0],
+		kn:      fs.kn,
+		kstr:    fs.kstr,
+	}
 }
 
 // closeFunc finishes a function (fs_finish) and returns it if the parser
@@ -128,6 +163,7 @@ func (p *parser) closeFunc() *proto {
 	p.gola = p.gola[:fs.golaBase]
 	p.vtop = fs.vbase
 	p.fs = fs.prev
+	p.depth--
 
 	return pt
 }
