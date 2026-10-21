@@ -52,9 +52,10 @@ jobs:
   testrace:
     name: testrace
     runs-on: ubuntu-latest
-    # The suite takes about 14 minutes with -race -count=100, so the rule
+    # The suite takes 22 minutes with -race -count=100 on a GitHub runner
+    # (14 minutes on a 2-core workstation), so the rule
     # timeout-minutes = go test -timeout + 5 leaves room for a slow runner.
-    timeout-minutes: 30
+    timeout-minutes: 45
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
@@ -68,7 +69,7 @@ jobs:
       # The default go test timeout of 10 minutes cuts the run short on a
       # loaded runner: the corpus tests of the parser are slow under -race.
       - name: Test with the race detector
-        run: go test ./... -race -count=100 -timeout=25m
+        run: go test ./... -race -count=100 -timeout=40m
 
   lint:
     name: lint

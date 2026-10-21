@@ -21,7 +21,7 @@ test:
 # default 10-minute timeout of go test.
 .PHONY: testrace
 testrace:
-	@go test ./... -race -count=100 -timeout=25m
+	@go test ./... -race -count=100 -timeout=40m
 
 .PHONY: cover
 cover:
