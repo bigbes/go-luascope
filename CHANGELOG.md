@@ -21,10 +21,14 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   chunk like the bytecode loader of LuaJIT, and the error for bytecode after
   a header does not name it, like LuaJIT. `SyntaxError.Chunk` and
   `ReadError.Chunk` keep the name as passed.
-- `parser`: parsing takes about 40% more time and memory, because the
-  parser emits the bytecode of LuaJIT to reject the code LuaJIT cannot
-  encode, see below. On the 6.4 MB of Lua of the test corpus, the throughput
-  fell from 79 to 57 MB/s and the allocations grew from 54 to 75 MB.
+- `parser`: parsing takes about 20% more time, because the parser emits
+  the bytecode of LuaJIT to reject the code LuaJIT cannot encode, see
+  below. On the 6.2 MB of Lua of the test corpus, `BenchmarkParseCorpus`
+  went from 76.4 to 62.9 MB/s, and from 17.4 to 21.8 ms on the files under
+  5 KB. Parsers reuse their memory through a `sync.Pool`, and the names,
+  numbers and comments of the AST are substrings of one copy of the source,
+  which they keep alive: a parse allocates 23% fewer objects and 4% more
+  bytes.
 
 ### Fixed
 
