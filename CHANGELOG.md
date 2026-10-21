@@ -14,7 +14,9 @@ The first public release.
 
 - `parser`: parses a chunk of Lua code in the dialect of Tarantool's LuaJIT,
   performs the checks of the LuaJIT compiler, and resolves every name to a
-  local variable, an upvalue, or a global variable.
+  local variable, an upvalue, or a global variable. `Parse` reads the chunk
+  from an `io.Reader` and `ParseBytes` takes it in memory; a failure to read
+  the reader is reported as a `ReadError` with the chunk name.
 - `ast`: the syntax tree of a chunk and `Inspect` to walk it.
 - `globals`: reports the global variables, with the paths of their constant
   fields, and the `require` calls a chunk uses, matching the `GGET` and

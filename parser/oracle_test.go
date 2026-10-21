@@ -216,7 +216,7 @@ func globalOps(chunk *ast.Chunk) []globalOp {
 
 // parseResult renders the result of Parse for a source.
 func parseResult(src []byte, hashed bool) string {
-	chunk, err := Parse(src, "m")
+	chunk, err := ParseBytes(src, "m")
 	if err != nil {
 		var se *SyntaxError
 		if !errors.As(err, &se) {

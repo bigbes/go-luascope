@@ -7,8 +7,8 @@ import (
 	"github.com/bigbes/go-luascope/parser"
 )
 
-func ExampleParse() {
-	chunk, err := parser.Parse([]byte("local n = 1LL\nprint(n, x)"), "example")
+func ExampleParseBytes() {
+	chunk, err := parser.ParseBytes([]byte("local n = 1LL\nprint(n, x)"), "example")
 	if err != nil {
 		panic(err)
 	}
@@ -21,7 +21,7 @@ func ExampleParse() {
 		return true
 	})
 
-	_, err = parser.Parse([]byte("x = 1 +"), "example")
+	_, err = parser.ParseBytes([]byte("x = 1 +"), "example")
 	fmt.Println(err)
 
 	// Output:

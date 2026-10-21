@@ -68,3 +68,22 @@ func (e *SyntaxError) Detail() string {
 
 	return fmt.Sprintf("%d: %s", e.Line, e.Msg)
 }
+
+// ReadError is a failure to read the chunk given to Parse.
+type ReadError struct {
+	// Chunk is the chunk name passed to Parse.
+	Chunk string
+	// Err is the error of the reader.
+	Err error
+}
+
+// Error returns "chunk: error message".
+func (e *ReadError) Error() string {
+	return e.Chunk + ": " + e.Err.Error()
+}
+
+// Unwrap returns the error of the reader, so errors.Is and errors.As reach
+// it.
+func (e *ReadError) Unwrap() error {
+	return e.Err
+}

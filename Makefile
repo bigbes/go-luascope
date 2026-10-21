@@ -16,9 +16,12 @@ all: test lint spell
 test:
 	@go test ./... -count=1
 
+# -count=100 shakes out tests that depend on the order of execution; the
+# race detector and the corpus tests of the parser need more than the
+# default 10-minute timeout of go test.
 .PHONY: testrace
 testrace:
-	@go test ./... -race -count=1
+	@go test ./... -race -count=100 -timeout=25m
 
 .PHONY: cover
 cover:

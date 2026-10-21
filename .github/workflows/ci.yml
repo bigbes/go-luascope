@@ -52,6 +52,9 @@ jobs:
   testrace:
     name: testrace
     runs-on: ubuntu-latest
+    # The suite takes about 9 minutes with -race -count=100, so the rule
+    # timeout-minutes = go test -timeout + 5 leaves room for a slow runner.
+    timeout-minutes: 30
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' &&
@@ -62,8 +65,10 @@ jobs:
         with:
           go-version: stable
       # -count=100 shakes out tests that depend on the order of execution.
+      # The default go test timeout of 10 minutes cuts the run short on a
+      # loaded runner: the corpus tests of the parser are slow under -race.
       - name: Test with the race detector
-        run: go test ./... -race -count=100
+        run: go test ./... -race -count=100 -timeout=25m
 
   lint:
     name: lint

@@ -34,6 +34,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/bigbes/go-luascope/allowlist"
 	"github.com/bigbes/go-luascope/globals"
@@ -41,11 +42,15 @@ import (
 )
 
 func main() {
-	src := []byte(`local json = require("json")
-box.space.users:select()
-`)
+	f, err := os.Open("migration.lua")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 
-	chunk, err := parser.Parse(src, "migration.lua")
+	defer f.Close()
+
+	chunk, err := parser.Parse(f, "migration.lua")
 	if err != nil {
 		// A LuaJIT-like message: "migration.lua:3: unexpected symbol near 'x'".
 		fmt.Println(err)
@@ -87,6 +92,10 @@ built the way Tarantool builds it: with FFI and without
 - a `break` must be the last statement of a block, there are no empty
   statements (`;;`), and a call cannot start on a new line
   (`ambiguous syntax`), as in Lua 5.1.
+
+`parser.Parse` reads a chunk from any `io.Reader`, `parser.ParseBytes` takes
+the source in memory. A failure to read the reader is reported as a
+`parser.ReadError`, never as a syntax error of the chunk.
 
 The parser does the compiler's checks: gotos and labels, `break` outside a
 loop, `...` outside a vararg function, assignment targets, and the limits on
@@ -178,9 +187,10 @@ make -C /tmp/luajit-build -j
 make golden LUAJIT=/tmp/luajit-build/src/luajit
 ```
 
-`make test` runs the tests, `make cover` prints the statement coverage,
-`make lint` runs golangci-lint, `make spell` runs codespell, and `make fuzz`
-runs the parser fuzzer.
+`make test` runs the tests, `make testrace` runs them a hundred times with
+the race detector, `make cover` prints the statement coverage, `make lint`
+runs golangci-lint, `make spell` runs codespell, and `make fuzz` runs the
+parser fuzzer.
 
 The statement coverage of the library is above 98%, and every package has
 tests.

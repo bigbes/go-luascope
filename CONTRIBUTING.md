@@ -69,6 +69,9 @@ and `ci`.
 - Comments, identifiers and documentation are in English.
 - Exported identifiers have doc comments that end with a period and start
   with the name being documented.
+- An exported API change updates the examples in the doc comment and the
+  callers in `README.md`, `doc.go` and the `ExampleXxx` functions: they are
+  compiled, so a stale one breaks the build.
 - `golangci-lint` runs in CI with the configuration from `.golangci.yml`;
   run `make lint` before pushing.
 - Use the standard library unless a dependency earns its place.

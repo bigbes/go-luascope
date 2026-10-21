@@ -21,7 +21,7 @@ func TestPosString(t *testing.T) {
 func TestPosOfNodes(t *testing.T) {
 	t.Parallel()
 
-	chunk, err := parser.Parse([]byte("x = 1\n"), "test.lua")
+	chunk, err := parser.ParseBytes([]byte("x = 1\n"), "test.lua")
 	require.NoError(t, err)
 
 	var sawName, sawNumber bool
@@ -59,7 +59,7 @@ func TestInspectOrder(t *testing.T) {
 	t.Parallel()
 
 	src := []byte("local t = {a = 1, \"b\"}\nfor i = 1, #t do\n  t[i] = -i\nend\n")
-	chunk, err := parser.Parse(src, "test.lua")
+	chunk, err := parser.ParseBytes(src, "test.lua")
 	require.NoError(t, err)
 
 	types := collectInspect(chunk.Block)
@@ -76,7 +76,7 @@ func TestInspectOrder(t *testing.T) {
 func TestInspectStopsOnFalse(t *testing.T) {
 	t.Parallel()
 
-	chunk, err := parser.Parse([]byte("x = f(1, 2)\n"), "test.lua")
+	chunk, err := parser.ParseBytes([]byte("x = f(1, 2)\n"), "test.lua")
 	require.NoError(t, err)
 
 	var types []string
@@ -129,7 +129,7 @@ goto done
 x.y, z = 1, 2
 f()
 `)
-	chunk, err := parser.Parse(src, "test.lua")
+	chunk, err := parser.ParseBytes(src, "test.lua")
 	require.NoError(t, err)
 
 	types := map[string]bool{}

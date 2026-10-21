@@ -29,7 +29,7 @@ var rules = allowlist.Rules{
 func checkWith(t *testing.T, r allowlist.Rules, src string) []string {
 	t.Helper()
 
-	chunk, err := parser.Parse([]byte(src), "test")
+	chunk, err := parser.ParseBytes([]byte(src), "test")
 	require.NoError(t, err)
 
 	checker, err := allowlist.NewChecker(r)

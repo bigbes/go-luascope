@@ -8,7 +8,7 @@ import (
 )
 
 func ExampleAnalyze() {
-	chunk, err := parser.Parse([]byte(`
+	chunk, err := parser.ParseBytes([]byte(`
 local log = require('log')
 local name = 'users'
 box.space[name]:replace({1})

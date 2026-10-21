@@ -8,7 +8,7 @@ import (
 )
 
 func Example() {
-	chunk, err := parser.Parse([]byte("box.space.users:select()"), "example.lua")
+	chunk, err := parser.ParseBytes([]byte("box.space.users:select()"), "example.lua")
 	if err != nil {
 		fmt.Println(err)
 		return

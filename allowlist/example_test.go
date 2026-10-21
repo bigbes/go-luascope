@@ -8,7 +8,7 @@ import (
 )
 
 func ExampleChecker() {
-	chunk, err := parser.Parse([]byte(`
+	chunk, err := parser.ParseBytes([]byte(`
 local fiber = require('fiber')
 box.cfg{}
 box.space.users:replace({1})

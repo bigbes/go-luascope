@@ -128,7 +128,7 @@ func TestAnalyzeCorpus(t *testing.T) {
 			slices.Sort(names)
 
 			for _, name := range names {
-				chunk, err := parser.Parse(files[name], "m")
+				chunk, err := parser.ParseBytes(files[name], "m")
 				require.NoError(t, err, name)
 
 				got := map[string]int{}
@@ -174,7 +174,7 @@ func TestAnalyzeRequires(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		chunk, err := parser.Parse([]byte(tt.src), "test")
+		chunk, err := parser.ParseBytes([]byte(tt.src), "test")
 		require.NoError(t, err)
 
 		usage := globals.Analyze(chunk)

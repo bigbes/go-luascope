@@ -15,7 +15,7 @@ func FuzzParse(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, src []byte) {
-		chunk, err := Parse(src, "fuzz")
+		chunk, err := ParseBytes(src, "fuzz")
 		if err != nil {
 			var se *SyntaxError
 			if !errors.As(err, &se) {

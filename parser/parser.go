@@ -19,6 +19,7 @@ package parser
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/bigbes/go-luascope/ast"
 )
@@ -40,8 +41,21 @@ type parser struct {
 	stmtUclo int
 }
 
-// Parse parses a chunk. The chunk name is used in error messages.
-func Parse(src []byte, chunk string) (result *ast.Chunk, err error) {
+// Parse reads a chunk from r and parses it. The chunk name is used in error
+// messages. A failure to read r is reported as a ReadError, never as a
+// syntax error of the chunk.
+func Parse(r io.Reader, chunk string) (*ast.Chunk, error) {
+	src, err := io.ReadAll(r)
+	if err != nil {
+		return nil, &ReadError{Chunk: chunk, Err: err}
+	}
+
+	return ParseBytes(src, chunk)
+}
+
+// ParseBytes parses a chunk held in memory. The chunk name is used in error
+// messages.
+func ParseBytes(src []byte, chunk string) (result *ast.Chunk, err error) {
 	p := &parser{lx: newLexer(src), lastLine: 1}
 
 	defer func() {

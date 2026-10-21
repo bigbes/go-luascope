@@ -3,7 +3,7 @@
 // Every use of a global variable or of a module is reported with its
 // position, so the caller can allow exactly the handful of names it needs:
 //
-//	chunk, err := parser.Parse(src, "migration.lua")
+//	chunk, err := parser.Parse(f, "migration.lua") // f is an io.Reader
 //	if err != nil {
 //		return err
 //	}
@@ -17,7 +17,8 @@
 //
 // Subpackages:
 //
-//   - [github.com/bigbes/go-luascope/parser] parses a chunk into a syntax tree.
+//   - [github.com/bigbes/go-luascope/parser] parses a chunk into a syntax tree,
+//     from an [io.Reader] or from memory.
 //   - [github.com/bigbes/go-luascope/ast] declares the syntax tree and Inspect.
 //   - [github.com/bigbes/go-luascope/globals] finds the globals and modules
 //     that code uses.
