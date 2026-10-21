@@ -19,7 +19,7 @@ import (
 var corpusSuites = []string{"lua5.1-tests", "luajit-tests", "tarantool", "vshard", "crud"}
 
 // loadCorpus reads the Lua sources of an archive.
-func loadCorpus(t *testing.T, suite string) []testCase {
+func loadCorpus(t testing.TB, suite string) []testCase {
 	t.Helper()
 
 	f, err := os.Open(filepath.Join("testdata", "corpus", suite+".tar.gz"))
