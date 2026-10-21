@@ -117,8 +117,15 @@ long`), a function that needs more than 250 registers (`function or
 expression too complex`), more than 65536 constants in a function.
 
 Error messages, lines and the tokens they are reported near are the same as
-LuaJIT's. The one difference from LuaJIT: bytecode chunks are always
-rejected, they cannot be analyzed.
+LuaJIT's. Differences from LuaJIT:
+
+- bytecode chunks are always rejected; they cannot be analyzed;
+- `^` on two number constants is folded with a correctly rounded power,
+  while LuaJIT uses `pow` of the C library: glibc rounds a result within
+  about 0.0013 ulp of a tie either way, so the folded constant can differ
+  in the last bit, see [`parser/pow.go`](parser/pow.go). The constant only
+  decides whether it is shared with an equal one, which changes no error
+  in practice.
 
 ## Globals and allow-lists
 
