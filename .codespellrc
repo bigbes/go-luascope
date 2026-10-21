@@ -1,0 +1,3 @@
+[codespell]
+skip = .git,go.sum,*.tar.gz,*.gz
+ignore-words-list = fo

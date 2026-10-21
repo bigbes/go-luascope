@@ -1,0 +1,27 @@
+name: Feature request
+description: A kind of Lua code that go-luascope cannot analyze today.
+labels: [feature]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: |
+        Which code do you need to analyze, and what do you need to know about
+        it? Describe the problem before the solution.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: A possible solution
+      description: An API, a rule, or an output you have in mind.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What you do instead today.
+    validations:
+      required: false

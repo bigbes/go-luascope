@@ -1,0 +1,51 @@
+name: Bug report
+description: A chunk of Lua code that is analyzed incorrectly, or a false report.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please reduce the problem to the smallest Lua
+        chunk you can, so it can become a test.
+  - type: textarea
+    id: source
+    attributes:
+      label: The Lua code
+      description: A chunk that shows the problem.
+      render: lua
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: An error message, a position, a reported global or a violation.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What you got
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: The version of go-luascope
+      placeholder: v0.1.0 or the commit hash
+    validations:
+      required: true
+  - type: input
+    id: go
+    attributes:
+      label: The Go version and the operating system
+      placeholder: go1.24.1 linux/amd64
+    validations:
+      required: true
+  - type: input
+    id: luajit
+    attributes:
+      label: The version of Tarantool's LuaJIT, if the problem is a difference from it
+      placeholder: tarantool/luajit 8af934d
+    validations:
+      required: false
