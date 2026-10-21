@@ -6,11 +6,12 @@ import (
 	"github.com/bigbes/go-luascope/ast"
 )
 
-// Limits of LuaJIT (lj_def.h).
+// Limits of LuaJIT (lj_def.h and lj_parse.c).
 const (
-	maxLocals = 200 // LJ_MAX_LOCVAR.
-	maxUpvals = 60  // LJ_MAX_UPVAL.
-	maxLevels = 200 //nolint:goconst // LJ_MAX_XLEVEL, equals maxLocals by chance.
+	maxLocals = 200               // LJ_MAX_LOCVAR.
+	maxUpvals = 60                // LJ_MAX_UPVAL.
+	maxLevels = 200               //nolint:goconst // LJ_MAX_XLEVEL, equals maxLocals by chance.
+	maxVstack = 65536 - maxUpvals // LJ_MAX_VSTACK.
 )
 
 // breakLabel is the name of the implicit label of "break". It cannot clash
@@ -38,6 +39,8 @@ type funcState struct {
 	vararg      bool
 	lineDefined int
 	golaBase    int
+	// vbase is the size of the variable stack when the function starts.
+	vbase int
 }
 
 // blockScope is a lexical block (FuncScope).
@@ -63,6 +66,7 @@ func (p *parser) openFunc(line int) *funcState {
 		upvals:      map[*ast.Local]bool{},
 		lineDefined: line,
 		golaBase:    len(p.gola),
+		vbase:       p.vtop,
 	}
 	p.fs = fs
 	p.openScope(0)
@@ -74,6 +78,7 @@ func (p *parser) closeFunc() {
 	p.fs.bl.flags &^= scopeUpval // Closed by the return (FSCOPE_NOCLOSE).
 	p.closeScope()
 	p.gola = p.gola[:p.fs.golaBase]
+	p.vtop = p.fs.vbase
 	p.fs = p.fs.prev
 }
 
@@ -94,7 +99,25 @@ func (p *parser) declare(v *ast.Local) {
 		p.limit(fs, maxLocals, "local variables")
 	}
 
+	p.pushVar()
 	fs.pending = append(fs.pending, v)
+}
+
+// pushVar adds an entry to the variable stack of LuaJIT (ls->vstack). Every
+// local, goto and label takes an entry, which stays until the end of the
+// function, so the stack limits the number of them declared in a function
+// and the functions enclosing it, not the number of active ones.
+func (p *parser) pushVar() {
+	p.checkVar()
+	p.vtop++
+}
+
+// checkVar fails if the variable stack has no room for an entry (the check
+// in var_new and gola_new).
+func (p *parser) checkVar() {
+	if p.vtop >= maxVstack {
+		p.failAt(p.lx.line, fmt.Sprintf(errVstack, maxVstack))
+	}
 }
 
 // activate makes the first n pending locals visible (var_add).
@@ -179,6 +202,10 @@ func (p *parser) closeScope() {
 			return
 		}
 
+		// LuaJIT pushes the break label to the variable stack and drops
+		// it right after resolving the breaks, so it needs room for it.
+		p.checkVar()
+
 		label := golaEntry{name: breakLabel, valid: true, slot: len(fs.actives)}
 		p.golaResolve(bl, len(p.gola), &label)
 	}
@@ -190,6 +217,7 @@ func (p *parser) closeScope() {
 
 // golaNew adds a goto or a label and returns its index.
 func (p *parser) golaNew(name string, isGoto bool, line int) int {
+	p.pushVar()
 	p.gola = append(p.gola, golaEntry{
 		name:   name,
 		isGoto: isGoto,

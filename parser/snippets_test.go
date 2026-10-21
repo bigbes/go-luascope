@@ -357,6 +357,22 @@ func limitSnippets() []testCase {
 		return []byte(strings.Repeat("a, ", n-1) + "a = 1")
 	}
 
+	// vars declares n locals in blocks. A local leaves the block but stays
+	// in the variable stack of LuaJIT until the end of the function.
+	vars := func(n int) string {
+		var b strings.Builder
+		for ; n > 0; n -= 100 {
+			b.WriteString("do local a" + strings.Repeat(",a", min(n, 100)-1) + " end\n")
+		}
+
+		return b.String()
+	}
+
+	// The variable stack holds 65476 entries: maxVstack.
+	vstack := func(n int, rest string) []byte {
+		return []byte(vars(n) + rest)
+	}
+
 	return []testCase{
 		{"limit/locals-199", locals(199)},
 		{"limit/locals-200", locals(200)},
@@ -381,6 +397,38 @@ func limitSnippets() []testCase {
 		{"limit/targets-200", targets(200)},
 		{"limit/targets-nested", []byte(string(nested("do ", "", "", 5)) + string(targets(195)) +
 			strings.Repeat(" end", 5))},
+		{"limit/vstack-locals-65476", vstack(65476, "")},
+		{"limit/vstack-locals-65477", vstack(65477, "")},
+		{"limit/vstack-label", vstack(65475, "do ::l:: end")},
+		{"limit/vstack-label-over", vstack(65476, "do ::l:: end")},
+		{"limit/vstack-goto", vstack(65474, "do goto l ::l:: end")},
+		{"limit/vstack-goto-over", vstack(65475, "do goto l ::l:: end")},
+		{"limit/vstack-break", vstack(65474, "while x do break end")},
+		// The label of the break needs an entry at the end of the loop.
+		{"limit/vstack-break-label", vstack(65475, "while x do break end")},
+		{"limit/vstack-break-repeat", vstack(65475, "repeat break until x")},
+		{"limit/vstack-for", vstack(65472, "for i = 1, 2 do end")},
+		{"limit/vstack-for-over", vstack(65473, "for i = 1, 2 do end")},
+		{"limit/vstack-for-in", vstack(65471, "for k, v in x do end")},
+		{"limit/vstack-for-in-over", vstack(65472, "for k, v in x do end")},
+		{"limit/vstack-params", vstack(65474, "local function f(a) end")},
+		{"limit/vstack-params-over", vstack(65475, "local function f(a) end")},
+		{"limit/vstack-self", vstack(65475, "function t:m() end")},
+		{"limit/vstack-self-over", vstack(65476, "function t:m() end")},
+		// A function counts the entries of the functions enclosing it and
+		// drops its own entries at its end.
+		{"limit/vstack-function-enclosing", vstack(65475, "local function f() "+vars(1)+" end")},
+		{"limit/vstack-function-after", []byte("local function f() " + vars(65475) + " end " +
+			vars(65475))},
+		{"limit/vstack-function-nested", vstack(65000, "local function f() "+vars(475)+" end")},
+		{"limit/vstack-function-nested-over", vstack(65000, "local function f() "+vars(476)+
+			" end")},
+		// A repeat loop with a captured local leaves through a hidden break.
+		{"limit/vstack-repeat-upval", vstack(65472,
+			"repeat local x local function f() return x end until x")},
+		{"limit/vstack-repeat-upval-over", vstack(65473,
+			"repeat local x local function f() return x end until x")},
+		{"limit/vstack-repeat", vstack(65473, "repeat local x until x")},
 	}
 }
 

@@ -99,8 +99,11 @@ the source in memory. A failure to read the reader is reported as a
 
 The parser does the compiler's checks: gotos and labels, `break` outside a
 loop, `...` outside a vararg function, assignment targets, and the limits on
-local variables, upvalues and syntax nesting. Error messages, lines and the
-tokens they are reported near are the same as LuaJIT's.
+local variables, upvalues and syntax nesting. The limits on local variables
+are both of LuaJIT's: 200 active in a function, and 65476 locals, gotos and
+labels declared in a function and the functions enclosing it. Error
+messages, lines and the tokens they are reported near are the same as
+LuaJIT's.
 
 Differences from LuaJIT:
 

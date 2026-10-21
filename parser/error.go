@@ -14,6 +14,7 @@ const (
 	errMatch        = "'%s' expected (to close '%s' at line %d)"
 	errLimitMain    = "main function has more than %d %s"
 	errLimitFunc    = "function at line %d has more than %d %s"
+	errVstack       = "chunk has more than %d local variables"
 	errParam        = "<name> or '...' expected"
 	errAmbiguous    = "ambiguous syntax (function call x new statement)"
 	errFuncArgs     = "function arguments expected"

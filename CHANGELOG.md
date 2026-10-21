@@ -17,6 +17,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   `Analyze` are linear in its length. A chain rooted at a local variable or
   a call, like `local t = {} return t.x.x.x`, was analyzed again from each
   of its fields, which was quadratic: 10000 fields took 1.5 seconds.
+- `parser`: the limit of LuaJIT on the variable stack is checked. A chunk
+  with more than 65476 locals, gotos and labels declared in a function and
+  the functions enclosing it, active or not, is rejected with LuaJIT's
+  error "chunk has more than 65476 local variables"; it was accepted.
 
 ## [0.1.0] - 2026-10-21
 

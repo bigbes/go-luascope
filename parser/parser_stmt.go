@@ -154,6 +154,14 @@ func (p *parser) repeatStmt(line int) *ast.Repeat {
 	s.Body = p.chunk()
 	p.match(tkUntil, tkRepeat, line)
 	s.Cond = p.expr() // Still inside the inner scope.
+
+	if p.fs.bl.flags&scopeUpval != 0 {
+		// LuaJIT closes the upvalues of the body before leaving the loop
+		// with a hidden break, which takes an entry of the variable stack.
+		p.fs.bl.flags |= scopeBreak
+		p.golaNew(breakLabel, true, p.jumpLine())
+	}
+
 	p.closeScope()
 	p.closeScope()
 

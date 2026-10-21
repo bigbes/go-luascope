@@ -10,6 +10,9 @@
 //
 // The parser does the same checks as the LuaJIT compiler: gotos, labels,
 // "...", ambiguous calls and the limits on locals, upvalues and nesting.
+// The limits on locals are both of LuaJIT's: 200 active locals in a
+// function, and 65476 locals, gotos and labels declared in a function and
+// the functions enclosing it.
 // It does not track registers, so it accepts functions that LuaJIT rejects
 // as "function or expression too complex". Bytecode chunks are rejected.
 //
@@ -34,7 +37,9 @@ type parser struct {
 	lastLine int
 	fs       *funcState
 	gola     []golaEntry
-	level    int
+	// vtop is the number of entries in the variable stack (ls->vtop).
+	vtop  int
+	level int
 	// uclo is the line of a UCLO instruction that is the last one emitted,
 	// or 0. stmtUclo is its value before the current statement.
 	uclo     int
