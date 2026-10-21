@@ -3,7 +3,7 @@
 // Every use of a global variable or of a module is reported with its
 // position, so the caller can allow exactly the handful of names it needs:
 //
-//	chunk, err := parser.Parse(f, "migration.lua") // f is an io.Reader
+//	chunk, err := parser.Parse(f, "@migration.lua") // f is an io.Reader
 //	if err != nil {
 //		return err
 //	}

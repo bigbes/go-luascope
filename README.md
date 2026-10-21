@@ -50,7 +50,7 @@ func main() {
 
 	defer f.Close()
 
-	chunk, err := parser.Parse(f, "migration.lua")
+	chunk, err := parser.Parse(f, "@migration.lua")
 	if err != nil {
 		// A LuaJIT-like message: "migration.lua:3: unexpected symbol near 'x'".
 		fmt.Println(err)
@@ -96,6 +96,12 @@ built the way Tarantool builds it: with FFI and without
 `parser.Parse` reads a chunk from any `io.Reader`, `parser.ParseBytes` takes
 the source in memory. A failure to read the reader is reported as a
 `parser.ReadError`, never as a syntax error of the chunk.
+
+The chunk name follows the convention of LuaJIT and is printed in error
+messages the way LuaJIT prints it: `"@migration.lua"` names a file and is
+printed as `migration.lua`, with the start cut off if it is long;
+`"=name"` is printed as `name`; any other name is taken for the source of
+the chunk and printed as `[string "name"]`.
 
 The parser does the compiler's checks: gotos and labels, `break` outside a
 loop, `...` outside a vararg function, assignment targets, and the limits on

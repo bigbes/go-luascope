@@ -8,6 +8,20 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `parser`: the chunk name passed to `Parse` and `ParseBytes` follows the
+  convention of LuaJIT, and error messages format it the way LuaJIT does:
+  `"@file.lua"` is printed as `file.lua`, with the start cut off if it is
+  long; `"=name"` is printed as `name`; any other name is taken for the
+  source of the chunk and printed as `[string "name"]`. Pass `"@" + path`
+  for a file to keep messages like `file.lua:3: ...`; a name passed as it
+  was before is now printed as `[string "file.lua"]:3: ...`. A `ReadError`
+  formats the name the same way. The errors of bytecode chunks name the
+  chunk like the bytecode loader of LuaJIT, and the error for bytecode after
+  a header does not name it, like LuaJIT. `SyntaxError.Chunk` and
+  `ReadError.Chunk` keep the name as passed.
+
 ### Fixed
 
 - `globals`: a string constant in parentheses used as a key is a constant

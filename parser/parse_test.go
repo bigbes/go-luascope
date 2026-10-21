@@ -68,11 +68,11 @@ func TestParseReader(t *testing.T) {
 func TestParseReaderSyntaxError(t *testing.T) {
 	t.Parallel()
 
-	_, err := parser.Parse(strings.NewReader("x = 1 +"), "reader.lua")
+	_, err := parser.Parse(strings.NewReader("x = 1 +"), "@reader.lua")
 
 	var se *parser.SyntaxError
 	require.ErrorAs(t, err, &se)
-	assert.Equal(t, "reader.lua", se.Chunk)
+	assert.Equal(t, "@reader.lua", se.Chunk)
 	assert.Equal(t, "reader.lua:1: unexpected symbol near '<eof>'", err.Error())
 }
 
@@ -81,12 +81,12 @@ func TestParseReadError(t *testing.T) {
 
 	readErr := errors.New("connection reset")
 
-	_, err := parser.Parse(&errReader{data: []byte("x = 1"), err: readErr}, "reader.lua")
+	_, err := parser.Parse(&errReader{data: []byte("x = 1"), err: readErr}, "@reader.lua")
 	require.Error(t, err)
 
 	var re *parser.ReadError
 	require.ErrorAs(t, err, &re)
-	assert.Equal(t, "reader.lua", re.Chunk)
+	assert.Equal(t, "@reader.lua", re.Chunk)
 	assert.Equal(t, readErr, re.Err)
 	assert.ErrorIs(t, err, readErr)
 	assert.Equal(t, "reader.lua: connection reset", err.Error())
@@ -137,8 +137,79 @@ func TestParseBytesReaderAgreement(t *testing.T) {
 	}
 }
 
+// TestChunkName checks the chunk name in error messages against LuaJIT:
+// the expected names are the ones LuaJIT prints for a syntax error, by
+// lj_debug_shortname, and for an error of its bytecode loader, by
+// bcread_error.
+func TestChunkName(t *testing.T) {
+	t.Parallel()
+
+	var (
+		path59 = strings.Repeat("p", 50) + "/file.lua"
+		path60 = strings.Repeat("p", 51) + "/file.lua"
+		path70 = strings.Repeat("d", 61) + "/file.lua"
+		cut    = func(s string) string { return "..." + s[len(s)-56:] }
+		n59    = strings.Repeat("n", 59)
+		s45    = strings.Repeat("s", 45)
+		s48    = strings.Repeat("s", 48)
+		q60    = strings.Repeat("q", 60)
+		high   = "\xd0\xbc\xd0\xb8\xd1\x80" // Bytes 128-255 are not control characters.
+	)
+
+	tests := []struct {
+		chunk    string
+		syntax   string // The name in "name:1: unexpected symbol near '<eof>'".
+		bytecode string // The name in "name: cannot load bytecode".
+	}{
+		// A file name.
+		{"@file.lua", "file.lua", "file.lua"},
+		{"@", "", ""},
+		{"@" + path59, path59, path59},
+		{"@" + path60, cut(path60), path60},
+		{"@" + path70, cut(path70), path70},
+		// A name to print as is.
+		{"=shown", "shown", "shown"},
+		{"=", "", ""},
+		{"=" + n59, n59, n59},
+		{"=" + n59 + "n", n59, n59 + "n"},
+		// A name taken for the source of the chunk.
+		{"plain", `[string "plain"]`, "plain"},
+		{"", `[string ""]`, ""},
+		{"x = 1 +", `[string "x = 1 +"]`, "x = 1 +"},
+		{s48, `[string "` + s48 + `"]`, s48},
+		{s48 + "s", `[string "` + s45 + `..."]`, s48 + "s"},
+		{"first\nsecond", `[string "first..."]`, "first\nsecond"},
+		{s48[1:] + "\n", `[string "` + s45 + `..."]`, s48[1:] + "\n"},
+		{high, "[string \"" + high + "\"]", high},
+		{"\x1bLJ", `[string "..."]`, "(binary)"},
+		// LuaJIT takes the name as a C string.
+		{"=a\x00b", "a", "a"},
+		{"@a\x00b", "a", "a"},
+		{"a\x00b", `[string "a"]`, "a"},
+		{"@" + q60 + "\x00tail", cut(q60), q60},
+	}
+
+	readErr := errors.New("connection reset")
+
+	for _, tt := range tests {
+		_, err := parser.ParseBytes([]byte("x = 1 +"), tt.chunk)
+		require.EqualError(t, err, tt.syntax+":1: unexpected symbol near '<eof>'",
+			"chunk %q", tt.chunk)
+
+		_, err = parser.ParseBytes([]byte("\x1bLJ"), tt.chunk)
+		require.EqualError(t, err, tt.bytecode+": cannot load bytecode", "chunk %q", tt.chunk)
+
+		// LuaJIT does not name the chunk when bytecode follows a header.
+		_, err = parser.ParseBytes([]byte("#!lua\n\x1bLJ"), tt.chunk)
+		require.EqualError(t, err, "cannot load malformed bytecode", "chunk %q", tt.chunk)
+
+		_, err = parser.Parse(&errReader{err: readErr}, tt.chunk)
+		require.EqualError(t, err, tt.syntax+": connection reset", "chunk %q", tt.chunk)
+	}
+}
+
 func ExampleParse() {
-	chunk, err := parser.Parse(strings.NewReader("x = 1"), "example")
+	chunk, err := parser.Parse(strings.NewReader("x = 1"), "=example")
 	if err != nil {
 		panic(err)
 	}
@@ -151,7 +222,7 @@ func ExampleParse() {
 		return true
 	})
 
-	_, err = parser.Parse(strings.NewReader("x = 1 +"), "example")
+	_, err = parser.Parse(strings.NewReader("x = 1 +"), "=example")
 	fmt.Println(err)
 
 	// Output:

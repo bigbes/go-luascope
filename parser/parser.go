@@ -47,8 +47,8 @@ type parser struct {
 }
 
 // Parse reads a chunk from r and parses it. The chunk name is used in error
-// messages. A failure to read r is reported as a ReadError, never as a
-// syntax error of the chunk.
+// messages, see ParseBytes. A failure to read r is reported as a ReadError,
+// never as a syntax error of the chunk.
 func Parse(r io.Reader, chunk string) (*ast.Chunk, error) {
 	src, err := io.ReadAll(r)
 	if err != nil {
@@ -59,7 +59,11 @@ func Parse(r io.Reader, chunk string) (*ast.Chunk, error) {
 }
 
 // ParseBytes parses a chunk held in memory. The chunk name is used in error
-// messages.
+// messages and follows the convention of the chunkname of LuaJIT: the name
+// of a file is passed as "@file.lua" and printed as file.lua, the start cut
+// off if it is long; "=name" is printed as name; any other name is taken
+// for the source of the chunk and printed as [string "name"], cut at the
+// end of the first line.
 func ParseBytes(src []byte, chunk string) (result *ast.Chunk, err error) {
 	p := &parser{lx: newLexer(src), lastLine: 1}
 

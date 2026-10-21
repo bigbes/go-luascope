@@ -8,7 +8,7 @@ import (
 )
 
 func ExampleParseBytes() {
-	chunk, err := parser.ParseBytes([]byte("local n = 1LL\nprint(n, x)"), "example")
+	chunk, err := parser.ParseBytes([]byte("local n = 1LL\nprint(n, x)"), "@example.lua")
 	if err != nil {
 		panic(err)
 	}
@@ -21,12 +21,13 @@ func ExampleParseBytes() {
 		return true
 	})
 
-	_, err = parser.ParseBytes([]byte("x = 1 +"), "example")
+	// "@" marks a file name, like in LuaJIT.
+	_, err = parser.ParseBytes([]byte("x = 1 +"), "@example.lua")
 	fmt.Println(err)
 
 	// Output:
 	// print 2:1 local: false
 	// n 2:7 local: true
 	// x 2:10 local: false
-	// example:1: unexpected symbol near '<eof>'
+	// example.lua:1: unexpected symbol near '<eof>'
 }
