@@ -19,16 +19,16 @@ import (
 var corpusSuites = []string{"lua5.1-tests", "luajit-tests", "tarantool", "vshard", "crud"}
 
 // loadCorpus reads the Lua sources of an archive.
-func loadCorpus(t testing.TB, suite string) []testCase {
-	t.Helper()
+func loadCorpus(tb testing.TB, suite string) []testCase {
+	tb.Helper()
 
 	f, err := os.Open(filepath.Join("testdata", "corpus", suite+".tar.gz"))
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	defer f.Close()
 
 	zr, err := gzip.NewReader(f)
-	require.NoError(t, err)
+	require.NoError(tb, err)
 
 	var cases []testCase
 
@@ -40,7 +40,7 @@ func loadCorpus(t testing.TB, suite string) []testCase {
 			break
 		}
 
-		require.NoError(t, err)
+		require.NoError(tb, err)
 
 		if hdr.Typeflag != tar.TypeReg ||
 			!strings.HasSuffix(hdr.Name, ".lua") && !strings.HasSuffix(hdr.Name, ".t") {
@@ -49,12 +49,12 @@ func loadCorpus(t testing.TB, suite string) []testCase {
 		}
 
 		src, err := io.ReadAll(tr)
-		require.NoError(t, err)
+		require.NoError(tb, err)
 
 		cases = append(cases, testCase{name: suite + "/" + hdr.Name, src: src})
 	}
 
-	require.NotEmpty(t, cases)
+	require.NotEmpty(tb, cases)
 
 	return cases
 }
