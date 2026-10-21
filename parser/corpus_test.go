@@ -107,6 +107,13 @@ const mutationsPerFile = 4
 // TestMutations compares error handling with LuaJIT on randomly edited
 // corpus files. The edits are deterministic, so the golden file is stable.
 func TestMutations(t *testing.T) {
+	checkSuite(t, "mutations", mutationCases(t), true)
+}
+
+// mutationCases returns the randomly edited corpus files.
+func mutationCases(t *testing.T) []testCase {
+	t.Helper()
+
 	var cases []testCase
 
 	for _, suite := range corpusSuites {
@@ -123,5 +130,5 @@ func TestMutations(t *testing.T) {
 		}
 	}
 
-	checkSuite(t, "mutations", cases, true)
+	return cases
 }

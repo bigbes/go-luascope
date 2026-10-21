@@ -83,6 +83,10 @@ type token struct {
 	// val is the name, the decoded string or the number lexeme.
 	val string
 	pos ast.Pos
+	// num is the value of a number that is not cdata.
+	num float64
+	// cdata is set for a 64-bit integer or an imaginary number.
+	cdata bool
 }
 
 // Character classes of LuaJIT (lj_char.c). Bytes 128-255 are identifier

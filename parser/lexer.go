@@ -149,8 +149,8 @@ func (lx *lexer) scan() token {
 func (lx *lexer) identOrNumber() token {
 	pos := lx.pos()
 	if isDigit(lx.c) {
-		lx.number()
-		return token{typ: tkNumber, val: string(lx.buf), pos: pos}
+		num, cdata := lx.number()
+		return token{typ: tkNumber, val: string(lx.buf), pos: pos, num: num, cdata: cdata}
 	}
 
 	for isIdent(lx.saveNext()) {
@@ -259,13 +259,14 @@ func (lx *lexer) dot(pos ast.Pos) token {
 		return token{typ: '.', pos: pos}
 	}
 
-	lx.number()
+	num, cdata := lx.number()
 
-	return token{typ: tkNumber, val: string(lx.buf), pos: pos}
+	return token{typ: tkNumber, val: string(lx.buf), pos: pos, num: num, cdata: cdata}
 }
 
-// number scans a number literal, like lex_number.
-func (lx *lexer) number() {
+// number scans a number literal, like lex_number, and returns its value or
+// reports that it is cdata.
+func (lx *lexer) number() (float64, bool) {
 	c, xp := lx.c, int('e')
 
 	if c == '0' && lx.saveNext()|0x20 == 'x' {
@@ -277,9 +278,12 @@ func (lx *lexer) number() {
 		lx.saveNext()
 	}
 
-	if !validNumber(lx.buf) {
+	num, cdata, ok := scanNumber(lx.buf)
+	if !ok {
 		lx.fail(tkNumber, errNumber)
 	}
+
+	return num, cdata
 }
 
 // skipEq skips "[=*[" or "]=*]" and returns the level, like lex_skipeq.

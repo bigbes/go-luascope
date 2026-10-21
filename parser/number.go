@@ -1,5 +1,11 @@
 package parser
 
+import (
+	"bytes"
+	"errors"
+	"strconv"
+)
+
 // Number formats of lj_strscan.c, in the same order.
 type numFormat int
 
@@ -25,6 +31,8 @@ type numScanner struct {
 	hasDig bool // Leading zeros were seen.
 	dp     int  // Offset of the decimal point or -1.
 	sp     int  // Offset of the first significant digit.
+	ep     int  // Offset of the exponent mark or -1.
+	exp    int  // Value of the exponent.
 }
 
 // at returns the character at offset i or 0 past the end, like the
@@ -39,17 +47,100 @@ func (n *numScanner) at(i int) int {
 
 func (n *numScanner) cur() int { return n.at(n.p) }
 
-// validNumber reports whether a number lexeme is accepted by LuaJIT with FFI
-// enabled: decimal, hexadecimal and binary literals, hexadecimal exponents
-// and the "i", "LL", "ULL" and "LLU" suffixes.
-func validNumber(s []byte) bool {
-	n := &numScanner{s: s, base: 10, fmt: fmtInt, dp: -1}
+// scanNumber checks a number lexeme the way LuaJIT with FFI does: decimal,
+// hexadecimal and binary literals, hexadecimal exponents and the "i", "LL",
+// "ULL" and "LLU" suffixes. It returns the value of a number, or reports
+// that the literal is cdata: a 64-bit integer or an imaginary number.
+func scanNumber(s []byte) (value float64, cdata, ok bool) {
+	n := &numScanner{s: s, base: 10, fmt: fmtInt, dp: -1, ep: -1}
 
 	if !n.prefix() || !n.digits() || !n.point() || !n.exponent() || !n.suffix() {
-		return false
+		return 0, false, false
 	}
 
-	return n.p == len(s) && n.convert()
+	if n.p != len(s) || !n.convert() {
+		return 0, false, false
+	}
+
+	switch n.fmt {
+	case fmtImag, fmtI64, fmtU64:
+		return 0, true, true
+	default:
+		return n.value(), false, true
+	}
+}
+
+// maxDigits is STRSCAN_MAXDIG: LuaJIT converts only the first 800
+// significant digits of a decimal number.
+const maxDigits = 800
+
+// value converts a number lexeme without a suffix to a double. LuaJIT
+// rounds correctly, as strconv does, but drops the decimal digits after
+// the first 800 significant ones.
+func (n *numScanner) value() float64 {
+	var (
+		v   float64
+		err error
+	)
+
+	switch n.base {
+	case 2:
+		var x uint64
+		for _, c := range n.s[n.sp : n.sp+n.dig] {
+			x = x<<1 | uint64(c-'0')
+		}
+
+		return float64(x)
+	case 16:
+		s := string(n.s)
+		if !bytes.ContainsAny(n.s, "pP") {
+			s += "p0"
+		}
+
+		v, err = strconv.ParseFloat(s, 64)
+	default:
+		v, err = strconv.ParseFloat(n.decimal(), 64)
+	}
+
+	if err != nil && !errors.Is(err, strconv.ErrRange) {
+		panic("parser: number " + strconv.Quote(string(n.s)) + ": " + err.Error())
+	}
+
+	return v
+}
+
+// decimal returns a decimal number as "0.<digits>e<exponent>" with at most
+// maxDigits significant digits.
+func (n *numScanner) decimal() string {
+	mant := n.s
+	if n.ep >= 0 {
+		mant = n.s[:n.ep]
+	}
+
+	point := bytes.IndexByte(mant, '.')
+	if point < 0 {
+		point = len(mant)
+	}
+
+	digits := make([]byte, 0, len(mant))
+	for _, c := range mant {
+		if c == '.' {
+			continue
+		}
+
+		if len(digits) == 0 && c == '0' {
+			point--
+			continue
+		}
+
+		digits = append(digits, c)
+	}
+
+	if len(digits) == 0 {
+		return "0"
+	}
+
+	return "0." + string(digits[:min(len(digits), maxDigits)]) + "e" + strconv.Itoa(point+n.exp)
 }
 
 // prefix detects the base and skips leading zeros.
@@ -145,9 +236,16 @@ func (n *numScanner) exponent() bool {
 	}
 
 	n.fmt = fmtNum
+	n.ep = n.p
 	n.p++
 
+	sign := 1
+
 	if c := n.cur(); c == '+' || c == '-' {
+		if c == '-' {
+			sign = -1
+		}
+
 		n.p++
 	}
 
@@ -155,12 +253,14 @@ func (n *numScanner) exponent() bool {
 		return false
 	}
 
-	for x := 0; isDigit(n.cur()); n.p++ {
-		x = x*10 + n.cur() - '0'
-		if x >= maxExp {
+	for ; isDigit(n.cur()); n.p++ {
+		n.exp = n.exp*10 + n.cur() - '0'
+		if n.exp >= maxExp {
 			return false
 		}
 	}
+
+	n.exp *= sign
 
 	return true
 }

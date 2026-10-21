@@ -35,6 +35,15 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   with more than 65476 locals, gotos and labels declared in a function and
   the functions enclosing it, active or not, is rejected with LuaJIT's
   error "chunk has more than 65476 local variables"; it was accepted.
+- `parser`: the code that the code generator of LuaJIT cannot encode is
+  rejected with the errors of LuaJIT; it was accepted. That is a jump over
+  more than 32767 instructions ("control structure too long"), a function
+  that needs more than 250 registers ("function or expression too
+  complex"), a return too far from the end of its function to be fixed up
+  ("function too long for return fixup"), more than 65536 constants in a
+  function, more than 2^26 instructions in the functions being compiled.
+  The parser emits the bytecode of LuaJIT to find them, so parsing takes
+  about 40% more time.
 
 ## [0.1.0] - 2026-10-21
 

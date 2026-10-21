@@ -48,6 +48,10 @@ var snippets = []testCase{
 	{"number/utf8-suffix", []byte("x = 1\xc3\xa9")},
 	{"number/concat", []byte("x = 1 .. 2")},
 	{"number/method", []byte("x = 1:foo()")},
+	{"number/fold-pow", []byte("a = 10^33 b = 2^0.5 c = 3^-7 d = 1.1^100 e = 7^1.5 f = 2^1023 " +
+		"g = 2^-1074 h = 2^-1075 i = 10^308 j = 10^309 k = (-2)^3 l = (-8)^(1/3) m = 0^-1")},
+	{"number/fold-arith", []byte("a = 1 + 2 b = 1 - 1 c = 0 * -1 d = 1 / 0 e = -1 / 0 f = 0 / 0 " +
+		"g = 7 % 3 h = -7 % 3 i = 7 % -3 j = 5.5 % 2 k = 1 % 0 l = 2^53 + 1 m = - -1 n = -0")},
 
 	// Short strings.
 	{"string/simple", []byte(`x = "a" .. 'b' .. "it's" .. 'say "hi"'`)},
@@ -432,6 +436,65 @@ func limitSnippets() []testCase {
 	}
 }
 
+// codegenSnippets are at the limits of the code generator of LuaJIT: a
+// jump over more than 32767 instructions, a frame of 250 registers, a
+// return copied too far by the fixup of returns, 65536 constants.
+func codegenSnippets() []testCase {
+	calls := func(n int) string { return strings.Repeat("f() ", n) } // 2 instructions each.
+
+	args := func(n int) string { return "f(" + strings.Repeat("a,", n-1) + "a)" }
+
+	statements := func(n int, format string) string {
+		var b strings.Builder
+		for i := range n {
+			fmt.Fprintf(&b, format, i)
+		}
+
+		return b.String()
+	}
+
+	pair := func(name string, ok int, src func(n int) string) []testCase {
+		return []testCase{
+			{fmt.Sprintf("codegen/%s-%d", name, ok), []byte(src(ok))},
+			{fmt.Sprintf("codegen/%s-%d", name, ok+1), []byte(src(ok + 1))},
+		}
+	}
+
+	return slices.Concat(
+		pair("while", 16381, func(n int) string { return "while x do " + calls(n) + "end" }),
+		pair("while-true", 16383, func(n int) string {
+			return "while true do " + calls(n) + "end"
+		}),
+		pair("if", 16383, func(n int) string { return "if x then " + calls(n) + "end" }),
+		pair("if-else", 16383, func(n int) string {
+			return "if x then " + calls(n) + "else f() end"
+		}),
+		pair("for", 16383, func(n int) string { return "for i = 1, 2 do " + calls(n) + "end" }),
+		pair("for-in", 16383, func(n int) string { return "for k in x do " + calls(n) + "end" }),
+		pair("repeat", 16382, func(n int) string { return "repeat " + calls(n) + "until x" }),
+		pair("goto-back", 16383, func(n int) string { return "::a:: " + calls(n) + "goto a" }),
+		pair("goto-forward", 16383, func(n int) string { return "goto a " + calls(n) + "::a::" }),
+		pair("break", 16379, func(n int) string {
+			return "while x do if y then break end " + calls(n) + "end"
+		}),
+		pair("and", 10921, func(n int) string {
+			return "x = y and f(" + strings.Repeat("g() + ", n) + "1)"
+		}),
+		pair("args", 247, args),
+		pair("locals-args", 46, func(n int) string {
+			return "local " + strings.Repeat("a,", 199) + "a " + args(n+1)
+		}),
+		pair("return-fixup", 16382, func(n int) string {
+			return "if x then return end " + calls(n) + " local function g() end"
+		}),
+		pair("numbers", 65536, func(n int) string { return statements(n, "x=%d.5 ") }),
+		pair("strings", 65535, func(n int) string { return statements(n, "x='%d' ") }),
+		pair("functions", 65535, func(n int) string {
+			return "local function f() " + strings.Repeat("x=function() end ", n) + "end"
+		}),
+	)
+}
+
 func labels(n int) string {
 	var b strings.Builder
 	for i := 1; i <= n; i++ {
@@ -442,5 +505,5 @@ func labels(n int) string {
 }
 
 func TestSnippets(t *testing.T) {
-	checkSuite(t, "snippets", slices.Concat(snippets, limitSnippets()), false)
+	checkSuite(t, "snippets", slices.Concat(snippets, limitSnippets(), codegenSnippets()), false)
 }

@@ -107,15 +107,18 @@ The parser does the compiler's checks: gotos and labels, `break` outside a
 loop, `...` outside a vararg function, assignment targets, and the limits on
 local variables, upvalues and syntax nesting. The limits on local variables
 are both of LuaJIT's: 200 active in a function, and 65476 locals, gotos and
-labels declared in a function and the functions enclosing it. Error
-messages, lines and the tokens they are reported near are the same as
-LuaJIT's.
+labels declared in a function and the functions enclosing it.
 
-Differences from LuaJIT:
+The parser also emits the bytecode LuaJIT emits for the chunk, with the same
+registers, constants and jumps, and drops it as soon as a function ends.
+This way it rejects the code that the code generator of LuaJIT cannot
+encode: a jump over more than 32767 instructions (`control structure too
+long`), a function that needs more than 250 registers (`function or
+expression too complex`), more than 65536 constants in a function.
 
-- registers are not allocated, so a function that LuaJIT rejects as
-  `function or expression too complex` is accepted;
-- bytecode chunks are always rejected; they cannot be analyzed.
+Error messages, lines and the tokens they are reported near are the same as
+LuaJIT's. The one difference from LuaJIT: bytecode chunks are always
+rejected, they cannot be analyzed.
 
 ## Globals and allow-lists
 
@@ -185,7 +188,8 @@ The parser is compared with LuaJIT on:
 
 For each source the result must match: either the same error, or the same
 global reads and writes as the `GGET` and `GSET` instructions of the
-compiled chunk. The reference results are stored in
+compiled chunk and the same bytecode: the instructions, the constants and
+the frame size of every function. The reference results are stored in
 `parser/testdata/golden`, so the tests do not need LuaJIT. To regenerate
 them, build the LuaJIT of Tarantool and run:
 

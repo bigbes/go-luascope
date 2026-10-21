@@ -13,8 +13,14 @@
 // The limits on locals are both of LuaJIT's: 200 active locals in a
 // function, and 65476 locals, gotos and labels declared in a function and
 // the functions enclosing it.
-// It does not track registers, so it accepts functions that LuaJIT rejects
-// as "function or expression too complex". Bytecode chunks are rejected.
+//
+// The parser also emits the bytecode LuaJIT emits for the chunk, with the
+// same registers, constants and jumps, and drops it as soon as a function
+// ends. This way it rejects the code that the code generator of LuaJIT
+// cannot encode, with the same errors: a jump over more than 32767
+// instructions ("control structure too long"), a function that needs more
+// than 250 registers ("function or expression too complex"), more than
+// 65536 constants in a function. Bytecode chunks are rejected.
 //
 // Names are resolved while parsing, using the compiler's rules, so the
 // AST tells locals from globals exactly as the bytecode does.
@@ -37,13 +43,15 @@ type parser struct {
 	lastLine int
 	fs       *funcState
 	gola     []golaEntry
+	// bcstack holds the bytecode of the functions being parsed.
+	bcstack []insLine
 	// vtop is the number of entries in the variable stack (ls->vtop).
 	vtop  int
 	level int
-	// uclo is the line of a UCLO instruction that is the last one emitted,
-	// or 0. stmtUclo is its value before the current statement.
-	uclo     int
-	stmtUclo int
+	// keep makes the parser keep the bytecode of the chunk in main, for
+	// the tests.
+	keep bool
+	main *proto
 }
 
 // Parse reads a chunk from r and parses it. The chunk name is used in error
@@ -64,9 +72,16 @@ func Parse(r io.Reader, chunk string) (*ast.Chunk, error) {
 // off if it is long; "=name" is printed as name; any other name is taken
 // for the source of the chunk and printed as [string "name"], cut at the
 // end of the first line.
-func ParseBytes(src []byte, chunk string) (result *ast.Chunk, err error) {
-	p := &parser{lx: newLexer(src), lastLine: 1}
+func ParseBytes(src []byte, chunk string) (*ast.Chunk, error) {
+	return newParser(src).run(chunk)
+}
 
+func newParser(src []byte) *parser {
+	return &parser{lx: newLexer(src), lastLine: 1}
+}
+
+// run parses the chunk and turns a syntax error into an error.
+func (p *parser) run(chunk string) (result *ast.Chunk, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			se, ok := r.(*SyntaxError)
@@ -79,9 +94,18 @@ func ParseBytes(src []byte, chunk string) (result *ast.Chunk, err error) {
 		}
 	}()
 
+	block := p.parse()
+
+	return &ast.Chunk{Block: block, Comments: p.lx.comments}, nil
+}
+
+// parse parses the main function of a chunk (lj_parse).
+func (p *parser) parse() *ast.Block {
 	p.lx.skipHeader()
-	p.openFunc(0)
-	p.fs.vararg = true // The main chunk is a vararg function.
+
+	fs := p.openFunc(0)
+	fs.flags |= protoVararg       // The main chunk is a vararg function.
+	fs.emit(insAD(bcFUNCV, 0, 0)) // A placeholder for the header.
 	p.next()
 
 	block := p.chunk()
@@ -89,9 +113,9 @@ func ParseBytes(src []byte, chunk string) (result *ast.Chunk, err error) {
 		p.errToken(tkEOF)
 	}
 
-	p.closeFunc()
+	p.main = p.closeFunc()
 
-	return &ast.Chunk{Block: block, Comments: p.lx.comments}, nil
+	return block
 }
 
 // next reads the next token (lj_lex_next).

@@ -20,27 +20,49 @@ const breakLabel = "(break)"
 
 // Block scope flags (FSCOPE_*).
 const (
-	scopeLoop  = 1 << iota // Breakable loop.
-	scopeBreak             // Has a pending break.
-	scopeGola              // Has gotos or labels.
-	scopeUpval             // Has a local captured by a closure.
+	scopeLoop    = 1 << iota // Breakable loop.
+	scopeBreak               // Has a pending break.
+	scopeGola                // Has gotos or labels.
+	scopeUpval               // Has a local captured by a closure.
+	scopeNoClose             // Does not close its upvalues.
 )
 
 // funcState is the state of a function being parsed (FuncState).
 type funcState struct {
+	p    *parser
 	prev *funcState
 	bl   *blockScope
-	// actives are the active locals by slot, like fs->varmap. Hidden loop
-	// control variables are included with a nil entry.
+	// actives are the active locals by register, like fs->varmap. Hidden
+	// loop control variables are included with a nil entry.
 	actives []*ast.Local
 	// pending are declared locals that are not active yet.
-	pending     []*ast.Local
-	upvals      map[*ast.Local]bool
-	vararg      bool
+	pending []*ast.Local
+	// uvmap are the upvalues by index.
+	uvmap       []*ast.Local
 	lineDefined int
 	golaBase    int
 	// vbase is the size of the variable stack when the function starts.
 	vbase int
+
+	// The code generator, see codegen.go. bc holds the instructions up
+	// to pc. It is a part of parser.bcstack from base on: like in LuaJIT,
+	// a function emits its bytecode after the bytecode of the function
+	// enclosing it.
+	bc         []insLine
+	base       uint32
+	pc         uint32
+	lasttarget uint32 // The last jump target.
+	jpc        uint32 // The pending jumps to the next instruction.
+	freereg    uint32
+	framesize  uint32
+	flags      uint32
+	numparams  uint32
+	kn         map[float64]uint32
+	kstr       map[string]uint32
+	nkn, nkgc  uint32
+	// knum and kgc list the constants for the tests, see proto.
+	knum []float64
+	kgc  []gcConst
 }
 
 // blockScope is a lexical block (FuncScope).
@@ -56,30 +78,99 @@ type golaEntry struct {
 	name   string
 	isGoto bool
 	valid  bool
-	slot   int // Number of active locals at the goto or the label.
-	line   int
+	slot   int    // Number of active locals at the goto or the label.
+	pc     uint32 // The jump of a goto, the target of a label.
 }
 
+// openFunc starts a function (fs_init and fscope_begin).
 func (p *parser) openFunc(line int) *funcState {
 	fs := &funcState{
+		p:           p,
 		prev:        p.fs,
-		upvals:      map[*ast.Local]bool{},
 		lineDefined: line,
 		golaBase:    len(p.gola),
 		vbase:       p.vtop,
+		jpc:         noJump,
+		framesize:   1, // The minimum frame size.
 	}
+
+	if p.fs != nil {
+		fs.base = p.fs.base + p.fs.pc
+	}
+
+	if int(fs.base) >= len(p.bcstack) {
+		p.growBytecode()
+	}
+
+	fs.bc = p.bcstack[fs.base:fs.base:len(p.bcstack)]
+
 	p.fs = fs
 	p.openScope(0)
 
 	return fs
 }
 
-func (p *parser) closeFunc() {
-	p.fs.bl.flags &^= scopeUpval // Closed by the return (FSCOPE_NOCLOSE).
+// closeFunc finishes a function (fs_finish) and returns it if the parser
+// keeps the bytecode.
+func (p *parser) closeFunc() *proto {
+	fs := p.fs
+	p.fixupReturn()
+
+	if fs.nkn > maxConst || fs.nkgc > maxConst {
+		p.limit(fs, maxConst, "constants")
+	}
+
+	var pt *proto
+	if p.keep {
+		pt = fs.finishProto()
+	}
+
+	p.gola = p.gola[:fs.golaBase]
+	p.vtop = fs.vbase
+	p.fs = fs.prev
+
+	return pt
+}
+
+// fixupReturn adds the final return of a function and ends its scope
+// (fs_fixup_ret). A function that has returned before its first closure
+// was created replaces the returns with a UCLO and a jump to a copy of the
+// return, so that they close the upvalues.
+func (p *parser) fixupReturn() {
+	fs := p.fs
+	lastpc := fs.pc
+
+	if lastpc <= fs.lasttarget || !isRetOrTail(fs.bc[lastpc-1].ins.op()) {
+		if fs.bl.flags&scopeUpval != 0 {
+			fs.emit(insAJ(bcUCLO, 0, 0))
+		}
+
+		fs.emit(insAD(bcRET0, 0, 1)) // Need a final return.
+	}
+
+	fs.bl.flags |= scopeNoClose // Closed above.
 	p.closeScope()
-	p.gola = p.gola[:p.fs.golaBase]
-	p.vtop = p.fs.vbase
-	p.fs = p.fs.prev
+
+	if fs.flags&protoFixupReturn == 0 {
+		return
+	}
+
+	for pc := uint32(1); pc < lastpc; pc++ {
+		switch ins := fs.bc[pc].ins; ins.op() {
+		case bcCALLMT, bcCALLT, bcRETM, bcRET, bcRET0, bcRET1:
+			offset := fs.emit(ins) // Copy the original instruction.
+			fs.bc[offset].line = fs.bc[pc].line
+
+			offset = offset - (pc + 1) + bcBiasJ
+			if offset > bcMaxD {
+				p.failNear(errFixup)
+			}
+
+			fs.bc[pc].ins = insAD(bcUCLO, 0, offset) // UCLO and the jump.
+		case bcFNEW:
+			return // Done.
+		}
+	}
 }
 
 // limit reports a function limit error (err_limit).
@@ -128,36 +219,57 @@ func (p *parser) activate(n int) {
 }
 
 // lookup resolves a name to a local of the current or an enclosing
-// function, or returns nil for a global (var_lookup).
-func (p *parser) lookup(name string) *ast.Local {
-	return p.lookupIn(p.fs, name)
+// function, or returns nil for a global (var_lookup). It sets e to the
+// local, the upvalue or the global.
+func (p *parser) lookup(name string, e *expDesc) *ast.Local {
+	return p.lookupIn(p.fs, name, e, true)
 }
 
-func (p *parser) lookupIn(fs *funcState, name string) *ast.Local {
-	if fs == nil {
+func (p *parser) lookupIn(fs *funcState, name string, e *expDesc, first bool) *ast.Local {
+	if fs == nil { // Not found in any function: a global.
+		e.init(vGlobal, 0)
+		e.sval = name
+
 		return nil
 	}
 
 	for i := len(fs.actives) - 1; i >= 0; i-- {
 		if v := fs.actives[i]; v != nil && v.Name == name {
-			if fs != p.fs {
-				markUpval(fs, i)
+			e.init(vLocal, uint32(i))
+
+			if !first {
+				markUpval(fs, i) // The scope now has an upvalue.
 			}
 
 			return v
 		}
 	}
 
-	v := p.lookupIn(fs.prev, name)
-	if v != nil && !fs.upvals[v] {
-		if len(fs.upvals) >= maxUpvals {
-			p.limit(fs, maxUpvals, "upvalues")
-		}
-
-		fs.upvals[v] = true
+	v := p.lookupIn(fs.prev, name, e, false)
+	if v != nil { // A local of an enclosing function: an upvalue here.
+		e.info = uint32(p.upvalue(fs, v))
+		e.k = vUpval
 	}
 
 	return v
+}
+
+// upvalue returns the index of an upvalue, adding it if needed
+// (var_lookup_uv).
+func (p *parser) upvalue(fs *funcState, v *ast.Local) int {
+	for i, u := range fs.uvmap {
+		if u == v {
+			return i
+		}
+	}
+
+	if len(fs.uvmap) >= maxUpvals {
+		p.limit(fs, maxUpvals, "upvalues")
+	}
+
+	fs.uvmap = append(fs.uvmap, v)
+
+	return len(fs.uvmap) - 1
 }
 
 // markUpval marks the block declaring the local at the slot as having a
@@ -173,6 +285,7 @@ func markUpval(fs *funcState, slot int) {
 	}
 }
 
+// openScope starts a block scope (fscope_begin).
 func (p *parser) openScope(flags int) {
 	fs := p.fs
 	fs.bl = &blockScope{
@@ -183,21 +296,21 @@ func (p *parser) openScope(flags int) {
 	}
 }
 
-// closeScope ends a block scope and resolves its gotos (fscope_end).
+// closeScope ends a block scope, closes its upvalues and resolves its
+// gotos (fscope_end).
 func (p *parser) closeScope() {
 	fs := p.fs
 	bl := fs.bl
 	fs.bl = bl.prev
 	fs.actives = fs.actives[:bl.nactvar]
+	fs.freereg = fs.nactvar()
 
-	if bl.flags&scopeUpval != 0 {
-		// LuaJIT closes the upvalues with a UCLO instruction, which a goto
-		// right after the block reuses, see jumpLine.
-		p.uclo = p.lastLine
+	if bl.flags&(scopeUpval|scopeNoClose) == scopeUpval {
+		fs.emit(insAJ(bcUCLO, uint32(bl.nactvar), 0))
 	}
 
 	if bl.flags&scopeBreak != 0 {
-		if bl.flags&scopeLoop == 0 {
+		if bl.flags&scopeLoop == 0 { // Propagate the breaks.
 			p.golaFixup(bl)
 			return
 		}
@@ -206,7 +319,7 @@ func (p *parser) closeScope() {
 		// it right after resolving the breaks, so it needs room for it.
 		p.checkVar()
 
-		label := golaEntry{name: breakLabel, valid: true, slot: len(fs.actives)}
+		label := golaEntry{name: breakLabel, valid: true, slot: len(fs.actives), pc: fs.pc}
 		p.golaResolve(bl, len(p.gola), &label)
 	}
 
@@ -215,22 +328,55 @@ func (p *parser) closeScope() {
 	}
 }
 
-// golaNew adds a goto or a label and returns its index.
-func (p *parser) golaNew(name string, isGoto bool, line int) int {
+// golaNew adds a goto or a label and returns its index (gola_new).
+func (p *parser) golaNew(name string, isGoto bool, pc uint32) int {
 	p.pushVar()
 	p.gola = append(p.gola, golaEntry{
 		name:   name,
 		isGoto: isGoto,
 		valid:  true,
 		slot:   len(p.fs.actives),
-		line:   line,
+		pc:     pc,
 	})
 
 	return len(p.gola) - 1
 }
 
+// golaLine returns the line of the jump of a goto, which LuaJIT reports
+// errors of the goto at.
+func (p *parser) golaLine(g *golaEntry) int {
+	return int(p.fs.bc[g.pc].line)
+}
+
+// golaPatch makes a goto jump to a label (gola_patch).
+func (p *parser) golaPatch(g, label *golaEntry) {
+	fs := p.fs
+	g.valid = false
+	fs.bc[g.pc].ins.setA(uint32(label.slot))
+	fs.jmpPatch(g.pc, label.pc)
+}
+
+// golaClose makes a goto close the upvalues of the block it leaves
+// (gola_close).
+func (p *parser) golaClose(g *golaEntry) {
+	fs := p.fs
+	fs.bc[g.pc].ins.setA(uint32(g.slot))
+
+	if fs.bc[g.pc].ins.op() != bcJMP {
+		return
+	}
+
+	if next := fs.jmpNext(g.pc); next != noJump {
+		fs.jmpPatch(next, g.pc) // Jump to the UCLO.
+	}
+
+	ip := &fs.bc[g.pc].ins
+	ip.setOp(bcUCLO) // Turn the jump into a UCLO.
+	ip.setJ(-1)      // NO_JMP.
+}
+
 // golaResolve resolves pending forward gotos of the block to the label at
-// index idx.
+// index idx (gola_resolve).
 func (p *parser) golaResolve(bl *blockScope, idx int, label *golaEntry) {
 	for i := bl.vstart; i < idx; i++ {
 		g := &p.gola[i]
@@ -240,15 +386,15 @@ func (p *parser) golaResolve(bl *blockScope, idx int, label *golaEntry) {
 
 		if g.slot < label.slot {
 			local := p.fs.actives[g.slot]
-			p.failAt(g.line, fmt.Sprintf(errGotoScope, g.name, local.Name))
+			p.failAt(p.golaLine(g), fmt.Sprintf(errGotoScope, g.name, local.Name))
 		}
 
-		g.valid = false
+		p.golaPatch(g, label)
 	}
 }
 
 // golaFixup resolves backward gotos to labels of the block going out of
-// scope and moves the remaining gotos to the enclosing block.
+// scope and moves the remaining gotos to the enclosing block (gola_fixup).
 func (p *parser) golaFixup(bl *blockScope) {
 	for i := bl.vstart; i < len(p.gola); i++ {
 		v := &p.gola[i]
@@ -257,55 +403,50 @@ func (p *parser) golaFixup(bl *blockScope) {
 		}
 
 		if !v.isGoto {
-			v.valid = false
+			v.valid = false // The label goes out of scope.
 
-			for j := i + 1; j < len(p.gola); j++ {
+			for j := i + 1; j < len(p.gola); j++ { // Resolve backward gotos.
 				if g := &p.gola[j]; g.valid && g.isGoto && g.name == v.name {
-					g.valid = false
+					if bl.flags&scopeUpval != 0 && g.slot > v.slot {
+						p.golaClose(g)
+					}
+
+					p.golaPatch(g, v)
 				}
 			}
 
 			continue
 		}
 
-		if bl.prev == nil {
+		if bl.prev == nil { // No outer scope: an undefined label or no loop.
 			if v.name == breakLabel {
-				p.failAt(v.line, errBreak)
+				p.failAt(p.golaLine(v), errBreak)
 			}
 
-			p.failAt(v.line, fmt.Sprintf(errUndefLabel, v.name))
+			p.failAt(p.golaLine(v), fmt.Sprintf(errUndefLabel, v.name))
 		}
 
-		if v.name == breakLabel {
+		if v.name == breakLabel { // Propagate the goto or break.
 			bl.prev.flags |= scopeBreak
 		} else {
 			bl.prev.flags |= scopeGola
 		}
 
 		v.slot = bl.nactvar
+
+		if bl.flags&scopeUpval != 0 {
+			p.golaClose(v)
+		}
 	}
 }
 
 // findLabel returns a label of the current block with the given name.
-func (p *parser) findLabel(name string) bool {
+func (p *parser) findLabel(name string) *golaEntry {
 	for i := p.fs.bl.vstart; i < len(p.gola); i++ {
 		if v := &p.gola[i]; v.valid && !v.isGoto && v.name == name {
-			return true
+			return v
 		}
 	}
 
-	return false
-}
-
-// jumpLine returns the line LuaJIT assigns to the jump of a goto or a
-// break (bcemit_jmp): normally the line of the previous token, but a jump
-// right after a "do" block closing upvalues reuses the UCLO instruction
-// of the block and its line. Only "do" blocks leave the UCLO as the last
-// instruction, other statements emit jumps or set a jump target after it.
-func (p *parser) jumpLine() int {
-	if p.stmtUclo > 0 {
-		return p.stmtUclo
-	}
-
-	return p.lastLine
+	return nil
 }

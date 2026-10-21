@@ -229,8 +229,51 @@ func parseResult(src []byte, hashed bool) string {
 	return render("", globalOps(chunk), hashed)
 }
 
+// oracle compares a result of the parser with a result of LuaJIT for a
+// source.
+type oracle struct {
+	// script prints the results of LuaJIT, in testdata/oracle.
+	script string
+	// prefix is the prefix of the golden files.
+	prefix string
+	// result renders the result of the parser.
+	result func(src []byte, hashed bool) string
+	// render renders the result printed by the script: the lines after
+	// "ok", or nil.
+	render func(t *testing.T, ok []string, hashed bool) string
+	// same compares a result of LuaJIT with a result of the parser.
+	same func(want, got string) bool
+}
+
+// globalsOracle compares the accepted sources, the errors and the global
+// variables.
+var globalsOracle = &oracle{
+	script: "oracle.lua",
+	result: parseResult,
+	render: renderGlobals,
+	same:   sameResult,
+}
+
+// renderGlobals renders the GGET and GSET lines of the oracle.
+func renderGlobals(t *testing.T, lines []string, hashed bool) string {
+	t.Helper()
+
+	ops := make([]globalOp, 0, len(lines))
+
+	for _, line := range lines {
+		f := strings.SplitN(line, " ", 3)
+		require.Len(t, f, 3, "bad oracle line %q", line)
+		n, err := strconv.Atoi(f[1])
+		require.NoError(t, err)
+
+		ops = append(ops, globalOp{op: f[0], name: f[2], line: n})
+	}
+
+	return render("", ops, hashed)
+}
+
 // runOracle runs LuaJIT on the sources and renders its results.
-func runOracle(t *testing.T, cases []testCase, hashed bool) map[string]string {
+func runOracle(t *testing.T, o *oracle, cases []testCase, hashed bool) map[string]string {
 	t.Helper()
 
 	dir := t.TempDir()
@@ -243,17 +286,17 @@ func runOracle(t *testing.T, cases []testCase, hashed bool) map[string]string {
 		require.NoError(t, os.WriteFile(files[i], c.src, 0o600))
 	}
 
-	script, err := filepath.Abs(filepath.Join("testdata", "oracle", "oracle.lua"))
+	script, err := filepath.Abs(filepath.Join("testdata", "oracle", o.script))
 	require.NoError(t, err)
 
 	args := append([]string{script, filepath.Dir(*luajit)}, files...)
 	out, err := exec.CommandContext(t.Context(), *luajit, args...).Output()
 	require.NoError(t, err)
 
-	return parseOracleOutput(t, out, byFile, hashed)
+	return parseOracleOutput(t, o, out, byFile, hashed)
 }
 
-func parseOracleOutput(t *testing.T, out []byte, byFile map[string]string,
+func parseOracleOutput(t *testing.T, o *oracle, out []byte, byFile map[string]string,
 	hashed bool,
 ) map[string]string {
 	t.Helper()
@@ -261,19 +304,19 @@ func parseOracleOutput(t *testing.T, out []byte, byFile map[string]string,
 	results := map[string]string{}
 
 	var (
-		name string
-		ops  []globalOp
-		ok   bool
+		name  string
+		lines []string
+		ok    bool
 	)
 
 	flush := func() {
 		if ok {
-			results[name] = render("", ops, hashed)
+			results[name] = o.render(t, lines, hashed)
 		}
 	}
 
 	sc := bufio.NewScanner(bytes.NewReader(out))
-	sc.Buffer(nil, 1<<20)
+	sc.Buffer(nil, 1<<26)
 
 	for sc.Scan() {
 		line := sc.Text()
@@ -281,18 +324,13 @@ func parseOracleOutput(t *testing.T, out []byte, byFile map[string]string,
 		switch {
 		case strings.HasPrefix(line, "== "):
 			flush()
-			name, ops, ok = byFile[line[3:]], nil, false
+			name, lines, ok = byFile[line[3:]], nil, false
 		case strings.HasPrefix(line, "error "):
 			results[name] = line
 		case line == "ok":
 			ok = true
 		default:
-			f := strings.SplitN(line, " ", 3)
-			require.Len(t, f, 3, "bad oracle line %q", line)
-			n, err := strconv.Atoi(f[1])
-			require.NoError(t, err)
-
-			ops = append(ops, globalOp{op: f[0], name: f[2], line: n})
+			lines = append(lines, line)
 		}
 	}
 
@@ -362,12 +400,12 @@ func readGolden(t *testing.T, suite string) map[string]string {
 
 // reportMismatch reports a difference. For hashed results it shows the
 // full results if LuaJIT is available.
-func reportMismatch(t *testing.T, c testCase, want, got string, hashed bool) {
+func reportMismatch(t *testing.T, o *oracle, c testCase, want, got string, hashed bool) {
 	t.Helper()
 
 	if hashed && *luajit != "" {
-		want = runOracle(t, []testCase{c}, false)[c.name]
-		got = parseResult(c.src, false)
+		want = runOracle(t, o, []testCase{c}, false)[c.name]
+		got = o.result(c.src, false)
 	}
 
 	t.Errorf("%s:\n--- luajit\n%s\n--- parser\n%s\n--- source\n%q", c.name, want, got, c.src)
@@ -378,12 +416,21 @@ func reportMismatch(t *testing.T, c testCase, want, got string, hashed bool) {
 func checkSuite(t *testing.T, suite string, cases []testCase, hashed bool) {
 	t.Helper()
 
+	checkOracle(t, globalsOracle, suite, cases, hashed)
+}
+
+// checkOracle compares the parser with the golden results of an oracle.
+func checkOracle(t *testing.T, o *oracle, suite string, cases []testCase, hashed bool) {
+	t.Helper()
+
+	suite = o.prefix + suite
+
 	if *update {
 		if *luajit == "" {
 			t.Fatal("-update requires -luajit")
 		}
 
-		writeGolden(t, suite, cases, runOracle(t, cases, hashed))
+		writeGolden(t, suite, cases, runOracle(t, o, cases, hashed))
 	}
 
 	golden := readGolden(t, suite)
@@ -398,10 +445,10 @@ func checkSuite(t *testing.T, suite string, cases []testCase, hashed bool) {
 			t.Fatalf("%s: no golden result, run with -update", c.name)
 		}
 
-		if got := parseResult(c.src, hashed); !sameResult(want, got) {
+		if got := o.result(c.src, hashed); !o.same(want, got) {
 			failed++
 			if failed <= 10 {
-				reportMismatch(t, c, want, got, hashed)
+				reportMismatch(t, o, c, want, got, hashed)
 			}
 		}
 	}

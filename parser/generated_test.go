@@ -162,7 +162,8 @@ func (g *generator) stmt() {
 // generatedPrograms is the number of generated programs.
 const generatedPrograms = 2000
 
-func TestGenerated(t *testing.T) {
+// generatedCases returns the generated programs.
+func generatedCases() []testCase {
 	cases := make([]testCase, 0, generatedPrograms)
 
 	for i := range generatedPrograms {
@@ -173,5 +174,9 @@ func TestGenerated(t *testing.T) {
 		cases = append(cases, testCase{name: name, src: []byte(g.b.String())})
 	}
 
-	checkSuite(t, "generated", cases, true)
+	return cases
+}
+
+func TestGenerated(t *testing.T) {
+	checkSuite(t, "generated", generatedCases(), true)
 }

@@ -52,7 +52,7 @@ jobs:
   testrace:
     name: testrace
     runs-on: ubuntu-latest
-    # The suite takes about 9 minutes with -race -count=100, so the rule
+    # The suite takes about 14 minutes with -race -count=100, so the rule
     # timeout-minutes = go test -timeout + 5 leaves room for a slow runner.
     timeout-minutes: 30
     if: >-
