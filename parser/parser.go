@@ -64,8 +64,9 @@ type parser struct {
 }
 
 // Parse reads a chunk from r and parses it. The chunk name is used in error
-// messages, see ParseBytes. A failure to read r is reported as a ReadError,
-// never as a syntax error of the chunk.
+// messages, and the tree keeps a copy of the source in memory, see
+// ParseBytes. A failure to read r is reported as a ReadError, never as a
+// syntax error of the chunk.
 func Parse(r io.Reader, chunk string) (*ast.Chunk, error) {
 	src, err := io.ReadAll(r)
 	if err != nil {
@@ -81,6 +82,13 @@ func Parse(r io.Reader, chunk string) (*ast.Chunk, error) {
 // off if it is long; "=name" is printed as name; any other name is taken
 // for the source of the chunk and printed as [string "name"], cut at the
 // end of the first line.
+//
+// The names, numbers and comments of the tree are substrings of one copy
+// of src. The tree does not refer to src, which the caller may reuse, but
+// the copy stays in memory as long as one of these strings does, also
+// after the tree is dropped: the names in globals.Usage are such strings.
+// A caller keeping a few names of many chunks can copy them with
+// strings.Clone.
 func ParseBytes(src []byte, chunk string) (*ast.Chunk, error) {
 	return newParser(src).run(chunk)
 }

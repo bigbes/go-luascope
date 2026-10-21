@@ -208,6 +208,31 @@ func TestChunkName(t *testing.T) {
 	}
 }
 
+// TestParseBytesCopiesSource checks that the tree does not refer to the
+// slice given to ParseBytes: the caller may reuse it.
+func TestParseBytesCopiesSource(t *testing.T) {
+	t.Parallel()
+
+	src := []byte("local name = 12 -- comment\nreturn name")
+
+	chunk, err := parser.ParseBytes(src, "=test")
+	require.NoError(t, err)
+
+	for i := range src {
+		src[i] = 'x'
+	}
+
+	local, ok := chunk.Block.Stmts[0].(*ast.LocalStmt)
+	require.True(t, ok)
+
+	number, ok := local.Values[0].(*ast.Number)
+	require.True(t, ok)
+
+	assert.Equal(t, "name", local.Names[0].Name)
+	assert.Equal(t, "12", number.Raw)
+	assert.Equal(t, " comment", chunk.Comments[0].Text)
+}
+
 func ExampleParse() {
 	chunk, err := parser.Parse(strings.NewReader("x = 1"), "=example")
 	if err != nil {

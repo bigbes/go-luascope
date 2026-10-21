@@ -90,7 +90,9 @@ type Usage struct {
 const RequireName = "require"
 
 // Analyze collects the global variables and modules used by a chunk.
-// Every use of a global name produces exactly one Access.
+// Every use of a global name produces exactly one Access. The names in the
+// usage are strings of the tree, which keep the source of the chunk in
+// memory, see parser.ParseBytes.
 func Analyze(chunk *ast.Chunk) *Usage {
 	a := &analyzer{}
 	ast.Inspect(chunk.Block, a.visit)
