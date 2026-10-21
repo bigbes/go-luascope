@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -212,4 +213,43 @@ func TestBytecodeCorpus(t *testing.T) {
 func TestBytecodeMutations(t *testing.T) {
 	skipRace(t)
 	checkOracle(t, bytecodeOracle, "mutations", mutationCases(t), true)
+}
+
+// TestParseParallel parses the same sources in several goroutines: the
+// parsers share the memory of sync.Pool, and must not share anything
+// else. The race detector checks the sharing, the bytecode the results.
+func TestParseParallel(t *testing.T) {
+	t.Parallel()
+
+	var cases []testCase
+
+	for _, suite := range corpusSuites {
+		cases = append(cases, loadCorpus(t, suite)...)
+	}
+
+	cases = cases[:200]
+	want := make([]string, len(cases))
+
+	for i, c := range cases {
+		want[i] = bytecodeResult(c.src, true)
+	}
+
+	var wg sync.WaitGroup
+
+	for g := range 4 {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for i := range cases { // Each goroutine starts at another source.
+				j := (i + g*len(cases)/4) % len(cases)
+				if got := bytecodeResult(cases[j].src, true); got != want[j] {
+					t.Errorf("%s: the bytecode differs in goroutine %d", cases[j].name, g)
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
 }
