@@ -8,11 +8,16 @@ import (
 
 // LuaJIT folds "^" on number constants with pow() of the C library. The
 // result is a constant of the function, so its value decides whether it
-// is shared with another constant. math.Pow is often off by an ulp: on
-// powers of small integers it differs from glibc in 40% of the cases. The
-// parser rounds the power correctly instead, which agrees with glibc except
-// on results within about 0.001 ulp of a tie, where glibc rounds either way.
-// LuaJIT on another C library may differ in more cases.
+// is shared with another constant. math.Pow is not rounded correctly and
+// often differs from glibc in the last bit, like on 10^33 in the Lua 5.1
+// tests, see TestPow. The parser rounds the power correctly instead.
+//
+// Measured once against LuaJIT with glibc 2.43, on 26727 powers of the
+// integers from -12 to 120 and 18 fractions to the integers from -80 to 80
+// and 16 fractions: math.Pow differed in 10841 of them (41%; 37% of the
+// integer powers of integers), this pow in 51, all within 0.0013 ulp of a
+// tie, where glibc rounds either way. LuaJIT with another C library may
+// differ in more cases.
 
 // powPrec is the precision of the computation of a power in bits.
 const powPrec = 320

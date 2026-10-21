@@ -21,6 +21,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   chunk like the bytecode loader of LuaJIT, and the error for bytecode after
   a header does not name it, like LuaJIT. `SyntaxError.Chunk` and
   `ReadError.Chunk` keep the name as passed.
+- `parser`: parsing takes about 40% more time and memory, because the
+  parser emits the bytecode of LuaJIT to reject the code LuaJIT cannot
+  encode, see below. On the 6.4 MB of Lua of the test corpus, the throughput
+  fell from 79 to 57 MB/s and the allocations grew from 54 to 75 MB.
 
 ### Fixed
 
@@ -42,8 +46,6 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   complex"), a return too far from the end of its function to be fixed up
   ("function too long for return fixup"), more than 65536 constants in a
   function, more than 2^26 instructions in the functions being compiled.
-  The parser emits the bytecode of LuaJIT to find them, so parsing takes
-  about 40% more time.
 
 ## [0.1.0] - 2026-10-21
 
