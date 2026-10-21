@@ -717,7 +717,6 @@ func (p *parser) body(e *expDesc, pos ast.Pos, needSelf bool, line int) *ast.Fun
 	pt := p.closeFunc()
 
 	e.init(vRelocable, pfs.emit(insAD(bcFNEW, 0, pfs.constGC(gcConst{kind: "proto", proto: pt}))))
-	pfs.flags |= fs.flags & protoFFI
 
 	if pfs.flags&protoChild == 0 {
 		if pfs.flags&protoHasReturn != 0 {

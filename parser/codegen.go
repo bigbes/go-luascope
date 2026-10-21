@@ -24,7 +24,6 @@ const (
 const (
 	protoChild       = 0x01
 	protoVararg      = 0x02
-	protoFFI         = 0x04
 	protoHasReturn   = 0x20
 	protoFixupReturn = 0x40
 )
@@ -488,7 +487,6 @@ func (fs *funcState) toRegNoBranch(e *expDesc, reg uint32) {
 			ins = insAD(bcKNUM, reg, fs.constNum(e.nval))
 		}
 	case e.k == vKCdata:
-		fs.flags |= protoFFI
 		ins = insAD(bcKCDATA, reg, fs.constGC(gcConst{kind: "cdata"}))
 	case e.k == vRelocable:
 		fs.bc[e.info].ins.setA(reg)
