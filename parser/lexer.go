@@ -10,7 +10,10 @@ const eof = -1
 
 // lexer is a port of LuaJIT's lj_lex.c that operates on an in-memory buffer.
 type lexer struct {
-	src       []byte
+	src []byte
+	// str is src as a string: names, numbers and comments are its
+	// substrings, without an allocation each.
+	str       string
 	off       int // Offset of c in src.
 	c         int // Current character or eof.
 	line      int // Line of c, the same as ls->linenumber.
@@ -22,7 +25,7 @@ type lexer struct {
 }
 
 func newLexer(src []byte) *lexer {
-	lx := &lexer{src: src, off: -1, line: 1}
+	lx := &lexer{src: src, str: string(src), off: -1, line: 1}
 	lx.next()
 
 	return lx
@@ -147,16 +150,16 @@ func (lx *lexer) scan() token {
 }
 
 func (lx *lexer) identOrNumber() token {
-	pos := lx.pos()
+	pos, start := lx.pos(), lx.off
 	if isDigit(lx.c) {
 		num, cdata := lx.number()
-		return token{typ: tkNumber, val: string(lx.buf), pos: pos, num: num, cdata: cdata}
+		return token{typ: tkNumber, val: lx.str[start:lx.off], pos: pos, num: num, cdata: cdata}
 	}
 
 	for isIdent(lx.saveNext()) {
 	}
 
-	name := string(lx.buf)
+	name := lx.str[start:lx.off]
 	if kw, ok := keywords[name]; ok {
 		return token{typ: kw, val: name, pos: pos}
 	}
@@ -190,7 +193,7 @@ func (lx *lexer) minusOrComment() (token, bool) {
 		lx.next()
 	}
 
-	lx.comments = append(lx.comments, ast.Comment{Pos: pos, Text: string(lx.src[start:lx.off])})
+	lx.comments = append(lx.comments, ast.Comment{Pos: pos, Text: lx.str[start:lx.off]})
 
 	return token{}, false
 }
@@ -246,6 +249,8 @@ func (lx *lexer) bracket(pos ast.Pos) token {
 }
 
 func (lx *lexer) dot(pos ast.Pos) token {
+	start := lx.off
+
 	if lx.saveNext() == '.' {
 		if lx.next() == '.' {
 			lx.next()
@@ -261,7 +266,7 @@ func (lx *lexer) dot(pos ast.Pos) token {
 
 	num, cdata := lx.number()
 
-	return token{typ: tkNumber, val: string(lx.buf), pos: pos, num: num, cdata: cdata}
+	return token{typ: tkNumber, val: lx.str[start:lx.off], pos: pos, num: num, cdata: cdata}
 }
 
 // number scans a number literal, like lex_number, and returns its value or
