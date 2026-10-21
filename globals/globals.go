@@ -160,6 +160,8 @@ func (a *analyzer) globalChain(e ast.Expr, write bool) bool {
 
 // globalPath returns the path of a chain of fields rooted at a global
 // name, the non-constant keys of the chain, and the position of the name.
+// Like LuaJIT, a string constant in parentheses is a constant key:
+// box[("schema")] is box.schema.
 func globalPath(e ast.Expr) (Path, []ast.Expr, ast.Pos, bool) {
 	var (
 		path Path
@@ -169,7 +171,7 @@ func globalPath(e ast.Expr) (Path, []ast.Expr, ast.Pos, bool) {
 	for {
 		switch x := e.(type) {
 		case *ast.Index:
-			if s, ok := x.Key.(*ast.String); ok {
+			if s, ok := unparen(x.Key).(*ast.String); ok {
 				path = append(path, Segment{Name: s.Value})
 			} else {
 				path = append(path, Segment{Dynamic: true})

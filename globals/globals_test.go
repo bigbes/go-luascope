@@ -193,3 +193,60 @@ func TestAnalyzeRequires(t *testing.T) {
 		require.Len(t, usage.RequireValues, tt.values, tt.src)
 	}
 }
+
+// accessStrings formats the accesses as "line:col read|write path".
+func accessStrings(usage *globals.Usage) []string {
+	var got []string
+
+	for _, a := range usage.Accesses {
+		kind := "read"
+		if a.Write {
+			kind = "write"
+		}
+
+		got = append(got, fmt.Sprintf("%s %s %s", a.Pos, kind, a.Path))
+	}
+
+	return got
+}
+
+// TestAnalyzePaths checks the complete path, the kind and the position of
+// every access.
+func TestAnalyzePaths(t *testing.T) {
+	tests := []struct {
+		src  string
+		want []string
+	}{
+		{"box.schema.space.create()", []string{"1:1 read box.schema.space.create"}},
+		// A string constant in parentheses is a constant key: LuaJIT emits
+		// TGETS for it, the same as for box.schema.
+		{`box[("schema")].space.create()`, []string{"1:1 read box.schema.space.create"}},
+		{`box[(("schema"))].space["create"]()`, []string{"1:1 read box.schema.space.create"}},
+		{`box[("space")][("users")]:select()`, []string{"1:1 read box.space.users.select"}},
+		{`box[("cfg")] = {}`, []string{"1:1 write box.cfg"}},
+		// A concatenation is not folded: LuaJIT emits CAT and TGETV.
+		{`local _ = box["sch" .. "ema"]`, []string{"1:11 read box[?]"}},
+		{"box.space.users:select()", []string{"1:1 read box.space.users.select"}},
+		{"box.space[name]:replace()", []string{"1:1 read box.space[?].replace", "1:11 read name"}},
+		{"(box).cfg {}", []string{"1:2 read box.cfg"}},
+		{"(box.space).x:y()", []string{"1:2 read box.space.x.y"}},
+		{`local _ = t["my key"][1].x`, []string{`1:11 read t["my key"][?].x`}},
+		{"x = y", []string{"1:1 write x", "1:5 read y"}},
+		{"box.cfg.x = 1", []string{"1:1 write box.cfg.x"}},
+		{"function a.b:m() end", []string{"1:10 write a.b.m"}},
+		{"function f() end", []string{"1:10 write f"}},
+		{"local t = {} t.x[k].y = g", []string{"1:18 read k", "1:25 read g"}},
+		{"local t = {} t:m(a.b)", []string{"1:18 read a.b"}},
+		{"f().x[k].y = 1", []string{"1:1 read f", "1:7 read k"}},
+		{"f(a)[b.c]:m(d)", []string{"1:1 read f", "1:3 read a", "1:6 read b.c", "1:13 read d"}},
+		{"t[u[v[w]]] = 1", []string{
+			"1:1 write t[?]", "1:3 read u[?]", "1:5 read v[?]", "1:7 read w",
+		}},
+	}
+
+	for _, tt := range tests {
+		chunk, err := parser.ParseBytes([]byte(tt.src), "test")
+		require.NoError(t, err, tt.src)
+		require.Equal(t, tt.want, accessStrings(globals.Analyze(chunk)), tt.src)
+	}
+}

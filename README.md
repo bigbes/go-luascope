@@ -113,8 +113,9 @@ Differences from LuaJIT:
 `globals.Analyze` reports one access per use of a global name, with the path
 of constant fields after it: `box.space.users:select()` is a read of
 `box.space.users.select`, `box.space[name]` is a read of `box.space[?]`,
-`t.x = 1` is a write of `t.x` when `t` is global. The accesses match the
-`GGET` and `GSET` instructions LuaJIT emits for the chunk.
+`t.x = 1` is a write of `t.x` when `t` is global. A string constant in
+parentheses is a constant field too: `box[("space")]` is `box.space`. The
+accesses match the `GGET` and `GSET` instructions LuaJIT emits for the chunk.
 
 Calls of the global `require` are reported with the module name when it is a
 string constant or a concatenation of string constants: `require("log")`,

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `globals`: a string constant in parentheses used as a key is a constant
+  field, as it is for LuaJIT: `box[("schema")].space.create()` is a read of
+  `box.schema.space.create`, not of `box[?].space.create`.
+
 ## [0.1.0] - 2026-10-21
 
 The first public release.
@@ -24,4 +32,5 @@ The first public release.
 - `allowlist`: checks the globals and modules of a chunk against lists of
   allowed names, with wildcards for fields and submodules.
 
+[Unreleased]: https://github.com/bigbes/go-luascope/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/bigbes/go-luascope/releases/tag/v0.1.0
