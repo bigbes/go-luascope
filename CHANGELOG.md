@@ -13,6 +13,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - `globals`: a string constant in parentheses used as a key is a constant
   field, as it is for LuaJIT: `box[("schema")].space.create()` is a read of
   `box.schema.space.create`, not of `box[?].space.create`.
+- `globals`: a chain of fields is analyzed once, so the time and memory of
+  `Analyze` are linear in its length. A chain rooted at a local variable or
+  a call, like `local t = {} return t.x.x.x`, was analyzed again from each
+  of its fields, which was quadratic: 10000 fields took 1.5 seconds.
 
 ## [0.1.0] - 2026-10-21
 

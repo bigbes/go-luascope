@@ -109,7 +109,7 @@ func (a *analyzer) visit(node ast.Node) bool {
 			a.access(Path{{Name: n.Name}}, false, n.At)
 		}
 	case *ast.Index:
-		return !a.globalChain(n, false)
+		a.chain(n, nil, false)
 	case *ast.MethodCall:
 		a.methodCall(n)
 	case *ast.Call:
@@ -144,67 +144,62 @@ func (a *analyzer) access(path Path, write bool, pos ast.Pos) {
 	}
 }
 
-// globalChain records an access through fields of a global variable and
-// reports whether e is such a chain.
-func (a *analyzer) globalChain(e ast.Expr, write bool) bool {
-	path, keys, pos, ok := globalPath(e)
-	if !ok {
-		return false
+// chain records the access through a chain of fields rooted at a global
+// name. A method call adds its method to the path. A chain with any other
+// root is not an access; its root is walked instead. The non-constant keys
+// are walked in both cases. A chain is analyzed once, from its outermost
+// field, so the analysis is linear in its length.
+func (a *analyzer) chain(e ast.Expr, method *ast.String, write bool) {
+	root, fields, keys := splitChain(e)
+
+	if n, ok := root.(*ast.Name); ok && n.Local == nil {
+		path := append(Path{{Name: n.Name}}, fields...)
+		if method != nil {
+			path = append(path, Segment{Name: method.Value})
+		}
+
+		a.access(path, write, n.At)
+	} else {
+		a.walk(root)
 	}
 
-	a.access(path, write, pos)
 	a.walk(keys...)
-
-	return true
 }
 
-// globalPath returns the path of a chain of fields rooted at a global
-// name, the non-constant keys of the chain, and the position of the name.
+// splitChain splits a chain of fields and parentheses into its root, the
+// fields after the root and the non-constant keys, both in source order.
 // Like LuaJIT, a string constant in parentheses is a constant key:
 // box[("schema")] is box.schema.
-func globalPath(e ast.Expr) (Path, []ast.Expr, ast.Pos, bool) {
+func splitChain(e ast.Expr) (ast.Expr, Path, []ast.Expr) {
 	var (
-		path Path
-		keys []ast.Expr
+		fields Path
+		keys   []ast.Expr
 	)
 
 	for {
 		switch x := e.(type) {
 		case *ast.Index:
 			if s, ok := unparen(x.Key).(*ast.String); ok {
-				path = append(path, Segment{Name: s.Value})
+				fields = append(fields, Segment{Name: s.Value})
 			} else {
-				path = append(path, Segment{Dynamic: true})
+				fields = append(fields, Segment{Dynamic: true})
 				keys = append(keys, x.Key)
 			}
 
 			e = x.X
 		case *ast.Paren:
 			e = x.X
-		case *ast.Name:
-			if x.Local != nil {
-				return nil, nil, ast.Pos{}, false
-			}
-
-			path = append(path, Segment{Name: x.Name})
-			slices.Reverse(path)
+		default:
+			slices.Reverse(fields)
 			slices.Reverse(keys)
 
-			return path, keys, x.At, true
-		default:
-			return nil, nil, ast.Pos{}, false
+			return e, fields, keys
 		}
 	}
 }
 
 func (a *analyzer) methodCall(c *ast.MethodCall) {
-	if path, keys, pos, ok := globalPath(c.Recv); ok {
-		a.access(append(path, Segment{Name: c.Method.Value}), false, pos)
-		a.walk(keys...)
-	} else {
-		a.walk(c.Recv)
-	}
-
+	a.chain(c.Recv, c.Method, false)
 	a.walk(c.Args...)
 }
 
@@ -218,9 +213,7 @@ func (a *analyzer) target(e ast.Expr) {
 		return
 	}
 
-	if !a.globalChain(e, true) {
-		a.walk(e)
-	}
+	a.chain(e, nil, true)
 }
 
 // protectedCalls are the global functions that call their first argument,

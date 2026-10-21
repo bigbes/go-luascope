@@ -250,3 +250,23 @@ func TestAnalyzePaths(t *testing.T) {
 		require.Equal(t, tt.want, accessStrings(globals.Analyze(chunk)), tt.src)
 	}
 }
+
+// TestAnalyzeLongChain checks that a chain of fields is analyzed once, from
+// its outermost field. Analyzing it again from every inner field takes time
+// and memory quadratic in its length. The test counts allocations, which do
+// not depend on the speed of the machine: a single pass allocates while the
+// path grows, a logarithmic number of times, and each extra pass over an
+// inner field allocates its own path.
+func TestAnalyzeLongChain(t *testing.T) {
+	const fields = 10000
+
+	for _, root := range []string{"local t = {} return t", "return f()", "return t"} {
+		src := root + strings.Repeat(".x", fields)
+
+		chunk, err := parser.ParseBytes([]byte(src), "test")
+		require.NoError(t, err, root)
+
+		allocs := testing.AllocsPerRun(1, func() { globals.Analyze(chunk) })
+		require.Less(t, allocs, 100.0, root)
+	}
+}
