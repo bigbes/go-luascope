@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `globals`: `require` named through the constant fields of `_G`, the table
+  of globals, is reported like `require`: `_G.require("log")` and
+  `pcall(_G["require"], "log")` are in `Requires`, and
+  `local r = _G.require` is in `RequireValues`. They were only reads of the
+  global path `_G.require`, so the rules of `allowlist` did not check the
+  module when their globals allowed that path: with `*` or `_G.*` in the
+  globals, `_G.require("os")` passed though `os` was not in the modules.
+
 ## [0.1.0] - 2026-10-22
 
 The first public release.
@@ -68,4 +80,5 @@ The first public release.
   ("function too long for return fixup"), more than 65536 constants in a
   function, more than 2^26 instructions in the functions being compiled.
 
+[Unreleased]: https://github.com/bigbes/go-luascope/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/bigbes/go-luascope/releases/tag/v0.1.0

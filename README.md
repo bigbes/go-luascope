@@ -138,9 +138,11 @@ accesses match the `GGET` and `GSET` instructions LuaJIT emits for the chunk.
 
 Calls of the global `require` are reported with the module name when it is a
 string constant or a concatenation of string constants: `require("log")`,
-`pcall(require, "log")` and `xpcall(require, handler, "log")`. Other uses of
-`require`, like `local r = require`, are reported separately, because the
-module they load cannot be known.
+`pcall(require, "log")` and `xpcall(require, handler, "log")`. A `require`
+named through the constant fields of `_G`, the table of globals, is the
+same: `_G.require("log")` and `pcall(_G["require"], "log")`. Other uses of
+`require`, like `local r = require` or `local r = _G.require`, are reported
+separately, because the module they load cannot be known.
 
 An entry of `allowlist.Rules` allows exactly the module or the global path it
 names. A `*` element matches any one name, including a field indexed with a

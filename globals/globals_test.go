@@ -171,6 +171,24 @@ func TestAnalyzeRequires(t *testing.T) {
 		{"f(require, 'log')", nil, 1},
 		{"pcall(f, require, 'log')", nil, 1},
 		{"require.x = 1", nil, 0},
+		// _G is the table of globals, so its constant fields reach require.
+		{"_G.require('log')", []string{"log"}, 0},
+		{"_G['require'] 'log'", []string{"log"}, 0},
+		{"(_G)[('require')]('log')", []string{"log"}, 0},
+		{"_G._G.require('log')", []string{"log"}, 0},
+		{"_G.require(name)", []string{"?"}, 0},
+		{"pcall(_G.require, 'log')", []string{"log"}, 0},
+		{"xpcall(_G['require'], handler, 'log')", []string{"log"}, 0},
+		{"local r = _G.require", nil, 1},
+		{"local r = _G._G.require", nil, 1},
+		{"local x = _G.require.x", nil, 1},
+		{"f(_G.require, 'log')", nil, 1},
+		{"_G:require('log')", nil, 1},
+		{"_G.require.x = 1", nil, 0},
+		{"local _G = _G _G.require('log')", nil, 0},
+		{"_G.x.require('log')", nil, 0},
+		{"_G.require._G('log')", nil, 1},
+		{"local _ = _G._G", nil, 0},
 	}
 
 	for _, tt := range tests {
@@ -242,6 +260,9 @@ func TestAnalyzePaths(t *testing.T) {
 		{"t[u[v[w]]] = 1", []string{
 			"1:1 write t[?]", "1:3 read u[?]", "1:5 read v[?]", "1:7 read w",
 		}},
+		{"require('log')", []string{"1:1 read require"}},
+		{"_G._G['require'](m)", []string{"1:1 read _G._G.require", "1:18 read m"}},
+		{"pcall((_G).require, 'log')", []string{"1:1 read pcall", "1:8 read _G.require"}},
 	}
 
 	for _, tt := range tests {

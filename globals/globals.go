@@ -68,13 +68,17 @@ type Access struct {
 
 // Require is a call of the global require: "require(name)", or a protected
 // call of it with the global pcall or xpcall: "pcall(require, name)" or
-// "xpcall(require, handler, name)".
+// "xpcall(require, handler, name)". The require may be named through the
+// constant fields of the global _G, the table of globals: "_G.require(name)"
+// and "pcall(_G['require'], name)" are calls of it too.
 type Require struct {
 	// Module is the module name if it is a constant.
 	Module string
 	// Dynamic is set when the module name is not a constant.
 	Dynamic bool
-	Pos     ast.Pos
+	// Pos is the position of the name that starts the require: of _G in
+	// "_G.require(name)".
+	Pos ast.Pos
 }
 
 // Usage lists the global variables and modules a chunk uses.
@@ -82,12 +86,16 @@ type Usage struct {
 	Accesses []Access
 	Requires []Require
 	// RequireValues are uses of the global require other than calls
-	// recorded in Requires, such as "local r = require" or "f(require, name)".
+	// recorded in Requires, such as "local r = require", "f(require, name)"
+	// or "local r = _G.require".
 	RequireValues []ast.Pos
 }
 
 // RequireName is the name of the global require function.
 const RequireName = "require"
+
+// globalTable is the name of the global that holds the table of globals.
+const globalTable = "_G"
 
 // Analyze collects the global variables and modules used by a chunk.
 // Every use of a global name produces exactly one Access. The names in the
@@ -141,9 +149,21 @@ func (a *analyzer) walk(nodes ...ast.Expr) {
 func (a *analyzer) access(path Path, write bool, pos ast.Pos) {
 	a.usage.Accesses = append(a.usage.Accesses, Access{Path: path, Write: write, Pos: pos})
 
-	if !write && path[0].Name == RequireName {
+	if !write && throughRequire(path) {
 		a.usage.RequireValues = append(a.usage.RequireValues, pos)
 	}
+}
+
+// throughRequire reports whether a path reads the global require or a field
+// of it, directly or through the constant fields of _G: require, require.x,
+// _G.require and _G._G.require do, _G and _G.x.require do not.
+func throughRequire(path Path) bool {
+	i := 0
+	for i < len(path)-1 && !path[i].Dynamic && path[i].Name == globalTable {
+		i++
+	}
+
+	return !path[i].Dynamic && path[i].Name == RequireName
 }
 
 // chain records the access through a chain of fields rooted at a global
@@ -225,8 +245,8 @@ var protectedCalls = map[string]int{"pcall": 1, "xpcall": 2}
 // requireCall records a call of the global require, directly or through
 // pcall or xpcall, and reports whether the call was one.
 func (a *analyzer) requireCall(c *ast.Call) bool {
-	if name, ok := globalName(c.Func, RequireName); ok {
-		a.require(name, c.Args, 0)
+	if root, path, ok := requireFunc(c.Func); ok {
+		a.require(root, path, c.Args, 0)
 		return true
 	}
 
@@ -240,20 +260,21 @@ func (a *analyzer) requireCall(c *ast.Call) bool {
 		return false
 	}
 
-	name, ok := globalName(c.Args[0], RequireName)
+	root, path, ok := requireFunc(c.Args[0])
 	if !ok {
 		return false
 	}
 
 	a.access(Path{{Name: callee.Name}}, false, callee.At)
-	a.require(name, c.Args[1:], arg-1)
+	a.require(root, path, c.Args[1:], arg-1)
 
 	return true
 }
 
-// require records a require with the module name in args[i].
-func (a *analyzer) require(name *ast.Name, args []ast.Expr, i int) {
-	r := Require{Pos: name.At, Dynamic: true}
+// require records a require of the function at path, which starts with the
+// global name root, with the module name in args[i].
+func (a *analyzer) require(root *ast.Name, path Path, args []ast.Expr, i int) {
+	r := Require{Pos: root.At, Dynamic: true}
 	if i < len(args) {
 		var ok bool
 
@@ -262,19 +283,45 @@ func (a *analyzer) require(name *ast.Name, args []ast.Expr, i int) {
 	}
 
 	a.usage.Requires = append(a.usage.Requires, r)
-	a.usage.Accesses = append(a.usage.Accesses,
-		Access{Path: Path{{Name: RequireName}}, Pos: name.At})
+	a.usage.Accesses = append(a.usage.Accesses, Access{Path: path, Pos: root.At})
 	a.walk(args...)
 }
 
-// globalName returns the global name e refers to if it is the given one.
-func globalName(e ast.Expr, name string) (*ast.Name, bool) {
-	n, ok := unparen(e).(*ast.Name)
-	if !ok || n.Local != nil || n.Name != name {
-		return nil, false
-	}
+// requireFunc reports whether e is the global require, named directly or
+// through the constant fields of _G: require, (require), _G.require,
+// _G["require"] and _G._G.require are. It returns the global name e starts
+// with and the path of e. It does not allocate unless e is the require.
+func requireFunc(e ast.Expr) (*ast.Name, Path, bool) {
+	want, fields := RequireName, 0
 
-	return n, true
+	for {
+		switch x := unparen(e).(type) {
+		case *ast.Name:
+			if x.Local != nil || x.Name != want {
+				return nil, nil, false
+			}
+
+			path := make(Path, fields+1)
+			for i := range fields {
+				path[i] = Segment{Name: globalTable}
+			}
+
+			path[fields] = Segment{Name: RequireName}
+
+			return x, path, true
+		case *ast.Index:
+			key, ok := unparen(x.Key).(*ast.String)
+			if !ok || key.Value != want {
+				return nil, nil, false
+			}
+
+			want = globalTable
+			fields++
+			e = x.X
+		default:
+			return nil, nil, false
+		}
+	}
 }
 
 func unparen(e ast.Expr) ast.Expr {

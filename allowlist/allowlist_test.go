@@ -160,7 +160,24 @@ func TestCheckViolations(t *testing.T) {
 		},
 		"g": {
 			"local r = _G.require",
-			[]string{"1:11: global variable '_G.require' is not allowed"},
+			[]string{
+				"1:11: " + requireValue,
+				"1:11: global variable '_G.require' is not allowed",
+			},
+		},
+		"g-require": {
+			"local m = _G.require('fiber')",
+			[]string{
+				"1:11: module 'fiber' is not allowed",
+				"1:11: global variable '_G.require' is not allowed",
+			},
+		},
+		"g-pcall": {
+			"local ok, m = pcall(_G['require'], 'fiber')",
+			[]string{
+				"1:21: module 'fiber' is not allowed",
+				"1:21: global variable '_G.require' is not allowed",
+			},
 		},
 		"loadstring": {
 			"loadstring('return 1')()",
@@ -293,6 +310,34 @@ func TestModulePatterns(t *testing.T) {
 		r := allowlist.Rules{Modules: []string{tt.entry}, Globals: []string{"require"}}
 		got := checkWith(t, r, "require('"+tt.module+"')")
 		assert.Equal(t, tt.allowed, len(got) == 0, "%q on %q: %v", tt.entry, tt.module, got)
+	}
+}
+
+// TestModulesThroughG checks that the modules are checked when require is
+// named through _G and the globals allow it, such as with "*", which allows
+// any global and leaves only the modules to check.
+func TestModulesThroughG(t *testing.T) {
+	const requireValue = "require used as a value; only calls with a constant module name " +
+		"are allowed"
+
+	tests := []struct {
+		src  string
+		want []string
+	}{
+		{"_G.require('log')", nil},
+		{"_G.require('fiber')", []string{"1:1: module 'fiber' is not allowed"}},
+		{"_G['require']('fiber')", []string{"1:1: module 'fiber' is not allowed"}},
+		{"_G._G.require('fiber')", []string{"1:1: module 'fiber' is not allowed"}},
+		{"pcall(_G.require, 'fiber')", []string{"1:7: module 'fiber' is not allowed"}},
+		{"_G.require(name)", []string{"1:1: require with a non-constant module name"}},
+		{"local r = _G.require", []string{"1:11: " + requireValue}},
+	}
+
+	for _, entry := range []string{"*", "_G.*"} {
+		r := allowlist.Rules{Modules: []string{"log"}, Globals: []string{entry, "pcall", "name"}}
+		for _, tt := range tests {
+			assert.Equal(t, tt.want, checkWith(t, r, tt.src), "%q on %q", entry, tt.src)
+		}
 	}
 }
 
