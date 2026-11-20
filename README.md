@@ -162,7 +162,13 @@ name and `require` used as a value are violations.
 
 The analysis is static and is not a sandbox: code can still reach globals
 through allowed functions, like `rawget` or `getfenv`, if the lists allow
-them.
+them. The same goes for `_G`, the table of globals. An entry that allows
+`_G` itself, like `_G` for `rawget(_G, name)` or `*`, lets code take the
+table and reach any global and any module through it:
+`local g = _G g.require("os")` passes. An entry that allows `_G` with a
+non-constant key, like `_G.*`, lets `_G[name]("os")` pass. Named with
+constant keys, `_G.require` is still `require`: `_G.require("os")` is
+checked against the modules.
 
 ## Documentation
 
